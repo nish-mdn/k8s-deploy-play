@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rails-db-pod
+  labels:
+    app: rails-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rails-db
+  template:
+    metadata:
+      labels:
+        app: rails-db
+    spec:
+      containers:
+      - name: rails-db
+        image: mysql:latest
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "root_password"
+        - name: MYSQL_DATABASE
+          value: "rails_development"
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mysql-storage
+        emptyDir: {}
