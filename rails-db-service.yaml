@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rails-db-service
+  labels:
+    app: rails-db
+spec:
+  type: ClusterIP
+  selector:
+    app: rails-db
+  ports:
+  - protocol: TCP
+    port: 3306
+    targetPort: 3306
