@@ -1,0 +1,83 @@
+---
+# PersistentVolume for MySQL Database
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: auth-service-mysql-pv
+  labels:
+    app: auth-service
+    component: database
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  local:
+    path: /mnt/data/auth-service-mysql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - ip-172-31-24-126  # Change to your actual node name
+  persistentVolumeReclaimPolicy: Retain
+
+---
+# PersistentVolumeClaim for MySQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-service-mysql-pvc
+  namespace: auth-service
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# PersistentVolume for RSA Keys and Logs
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: auth-service-app-pv
+  labels:
+    app: auth-service
+    component: application
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  local:
+    path: /mnt/data/auth-service-app
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - ip-172-31-24-126  # Change to your actual node name
+  persistentVolumeReclaimPolicy: Retain
+
+---
+# PersistentVolumeClaim for Application (keys, logs, tmp)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: auth-service-app-pvc
+  namespace: auth-service
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 1Gi

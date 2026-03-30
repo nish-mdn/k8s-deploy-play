@@ -1,0 +1,124 @@
+---
+# MySQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service-mysql
+  namespace: auth-service
+  labels:
+    app: auth-service
+    component: database
+spec:
+  type: ClusterIP
+  selector:
+    app: auth-service
+    component: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+      name: mysql
+
+---
+# MySQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service-mysql
+  namespace: auth-service
+  labels:
+    app: auth-service
+    component: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-service
+      component: mysql
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        component: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: auth-service-secrets
+                  key: DB_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: auth-service-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: auth-service-secrets
+                  key: DB_USERNAME
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: auth-service-secrets
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - mysqladmin ping -h localhost
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - mysqladmin ping -h localhost
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+          # Security context
+          securityContext:
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: mysql-data
+          persistentVolumeClaim:
+            claimName: auth-service-mysql-pvc
+      # Pod disruption budget
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - auth-service
+                topologyKey: kubernetes.io/hostname
+
+

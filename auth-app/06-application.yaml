@@ -1,0 +1,281 @@
+---
+# Service for Rails Application
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service-app
+  namespace: auth-service
+  labels:
+    app: auth-service
+    component: application
+spec:
+  type: NodePort
+  selector:
+    app: auth-service
+    component: application
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+      nodePort: 30080
+  sessionAffinity: None
+
+---
+# Deployment for Rails Application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service-app
+  namespace: auth-service
+  labels:
+    app: auth-service
+    component: application
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: auth-service
+      component: application
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        component: application
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Service account for RBAC (if needed)
+      serviceAccountName: default
+      
+      # Security context for pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      # Init container to wait for database
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.28
+          command:
+            - 'sh'
+            - '-c'
+            - >
+              until nc -z auth-service-mysql 3306;
+              do echo waiting for db; sleep 2; done;
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
+      
+      containers:
+        - name: rails-app
+          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:bf6c6fd  # Update with your ECR registry
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          
+          # Environment variables from ConfigMap and Secret
+          envFrom:
+            - configMapRef:
+                name: auth-service-config
+            - secretRef:
+                name: auth-service-secrets
+          
+          # Additional environment variables
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          
+          # Resource management
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Readiness probe
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          # Startup probe
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          
+          # Volume mounts
+          volumeMounts:
+            - name: app-storage
+              mountPath: /app/keys
+              subPath: keys
+            - name: app-storage
+              mountPath: /app/log
+              subPath: log
+            - name: app-storage
+              mountPath: /app/tmp
+              subPath: tmp
+          
+          # Security context for container
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      
+      # Volumes
+      volumes:
+        - name: app-storage
+          persistentVolumeClaim:
+            claimName: auth-service-app-pvc
+      
+      # Node affinity (schedule on specific nodes)
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - auth-service
+                    - key: component
+                      operator: In
+                      values:
+                        - application
+                topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: disktype
+                    operator: In
+                    values:
+                      - ssd
+      
+      # Pod disruption budget
+      terminationGracePeriodSeconds: 30
+      
+      # Tolerations (if using taints on nodes)
+      tolerations: []
+        # - key: "workload"
+        #   operator: "Equal"
+        #   value: "auth"
+        #   effect: "NoSchedule"
+
+# ---
+# # Horizontal Pod Autoscaler
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: auth-service-app-hpa
+#   namespace: auth-service
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: auth-service-app
+#   minReplicas: 3
+#   maxReplicas: 10
+#   metrics:
+#     - type: Resource
+#       resource:
+#         name: cpu
+#         target:
+#           type: Utilization
+#           averageUtilization: 70
+#     - type: Resource
+#       resource:
+#         name: memory
+#         target:
+#           type: Utilization
+#           averageUtilization: 80
+#   behavior:
+#     scaleDown:
+#       stabilizationWindowSeconds: 300
+#       policies:
+#         - type: Percent
+#           value: 50
+#           periodSeconds: 15
+#     scaleUp:
+#       stabilizationWindowSeconds: 0
+#       policies:
+#         - type: Percent
+#           value: 100
+#           periodSeconds: 15
+#         - type: Pods
+#           value: 2
+#           periodSeconds: 15
+#       selectPolicy: Max
+
+# ---
+# # Pod Disruption Budget
+# apiVersion: policy/v1
+# kind: PodDisruptionBudget
+# metadata:
+#   name: auth-service-app-pdb
+#   namespace: auth-service
+# spec:
+#   minAvailable: 1
+#   selector:
+#     matchLabels:
+#       app: auth-service
+#       component: application
