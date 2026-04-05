@@ -155,7 +155,7 @@ else
   aws iam create-role \
     --role-name "${IAM_ROLE_NAME}" \
     --assume-role-policy-document file:///tmp/trust-policy.json \
-    --description "IRSA role for rails-auth-service pods — S3 access only" \
+    --description "IRSA role for rails-auth-service pods - S3 access only" \
     --tags Key=Project,Value=rails-auth-service Key=ManagedBy,Value=irsa
   echo "    Role created."
 fi
