@@ -43,17 +43,33 @@ echo ""
 #    served by the OIDC endpoint.
 # ──────────────────────────────────────────────────────────────────────────────
 echo "==> Fetching OIDC TLS thumbprint for ${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com"
-THUMBPRINT=$(
-  openssl s_client \
-    -connect "${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com:443" \
-    -servername "${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com" \
-    -showcerts 2>/dev/null \
-  | awk '/-----BEGIN CERTIFICATE-----/{cert=""} {cert=cert $0 "\n"} /-----END CERTIFICATE-----/{last=cert} END{print last}' \
+
+# Download the full certificate chain, extract the LAST (root CA) cert,
+# then compute its SHA-1 fingerprint — must be exactly 40 hex chars.
+CERTS_PEM=$(openssl s_client \
+  -connect "${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com:443" \
+  -servername "${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com" \
+  -showcerts </dev/null 2>/dev/null)
+
+# Extract the last certificate in the chain (root CA)
+ROOT_CERT=$(echo "${CERTS_PEM}" \
+  | awk 'BEGIN{cert=""} /-----BEGIN CERTIFICATE-----/{cert=""} {cert=cert "\n" $0} /-----END CERTIFICATE-----/{last=cert} END{print last}')
+
+THUMBPRINT=$(echo "${ROOT_CERT}" \
   | openssl x509 -fingerprint -sha1 -noout 2>/dev/null \
-  | sed 's/SHA1 Fingerprint=//' \
-  | tr -d ':'
-)
-echo "    Thumbprint: ${THUMBPRINT}"
+  | sed 's/.*=//' \
+  | tr -d ':' \
+  | tr '[:upper:]' '[:lower:]')
+
+# Validate: must be exactly 40 hex characters
+if [[ ! "${THUMBPRINT}" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "ERROR: Thumbprint is invalid (got '${THUMBPRINT}', expected 40 hex chars)." >&2
+  echo "       Debug: try running manually:" >&2
+  echo "       openssl s_client -connect ${OIDC_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com:443 -showcerts </dev/null 2>/dev/null" >&2
+  exit 1
+fi
+
+echo "    Thumbprint: ${THUMBPRINT} (${#THUMBPRINT} chars — OK)"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. Create IAM OIDC Identity Provider
