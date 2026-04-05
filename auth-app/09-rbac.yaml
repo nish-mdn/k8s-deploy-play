@@ -1,0 +1,53 @@
+---
+# RBAC for service account
+# NOTE: The annotation below is purely INFORMATIONAL in a self-managed cluster.
+# In EKS, a mutating webhook reads it to auto-inject env vars and volumes.
+# In your Hard Way cluster, there is NO such webhook — the annotation does nothing
+# at runtime. We keep it as documentation so humans know which IAM role maps to
+# this ServiceAccount. The actual IRSA wiring is in 06-application.yaml
+# (env vars + projected volume). Removing this annotation changes nothing.
+#
+# Replace YOUR_AWS_ACCOUNT_ID with your real 12-digit account number.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service
+  namespace: auth-service
+  labels:
+    app: auth-service
+  annotations:
+    # IRSA (informational only in self-managed clusters)
+    eks.amazonaws.com/role-arn: "arn:aws:iam::177701659471:role/auth-service-s3-role"
+    eks.amazonaws.com/token-expiration: "86400"
+
+# ---
+# # Role for Auth Service
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: Role
+# metadata:
+#   name: auth-service-role
+#   namespace: auth-service
+# spec:
+#   rules:
+#     - apiGroups: [""]
+#       resources: ["configmaps", "secrets"]
+#       verbs: ["get", "list", "watch"]
+#     - apiGroups: [""]
+#       resources: ["pods"]
+#       verbs: ["get", "list"]
+
+# ---
+# # RoleBinding
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: RoleBinding
+# metadata:
+#   name: auth-service-rolebinding
+#   namespace: auth-service
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: Role
+#   name: auth-service-role
+# subjects:
+#   - kind: ServiceAccount
+#     name: auth-service
+#     namespace: auth-service
