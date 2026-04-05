@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::YOUR_AWS_ACCOUNT_ID:oidc-provider/k8s-oidc-auth-service.s3.us-east-1.amazonaws.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "k8s-oidc-auth-service.s3.us-east-1.amazonaws.com:aud": "sts.amazonaws.com",
+          "k8s-oidc-auth-service.s3.us-east-1.amazonaws.com:sub": "system:serviceaccount:auth-service:auth-service"
+        }
+      }
+    }
+  ]
+}
