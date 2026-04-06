@@ -172,7 +172,7 @@ else
   aws iam create-role \
     --role-name "${IAM_ROLE_NAME}" \
     --assume-role-policy-document file:///tmp/github-trust-policy.json \
-    --description "GitHub Actions OIDC role for K8s deployments — no AWS perms, only K8s auth" \
+    --description "GitHub Actions OIDC role for K8s deployments - no AWS perms, only K8s auth" \
     --tags Key=Project,Value=k8s-ci-cd Key=ManagedBy,Value=github-actions
   echo "    Role created."
 fi
