@@ -131,11 +131,12 @@ for entry in "${REPOS[@]}"; do
       \"Action\": \"sts:AssumeRoleWithWebIdentity\",
       \"Condition\": {
         \"StringEquals\": {
-          \"${GITHUB_OIDC_PROVIDER}:aud\": \"sts.amazonaws.com\"
-        },
-        \"${SUB_OPERATOR}\": {
+          \"${GITHUB_OIDC_PROVIDER}:aud\": \"sts.amazonaws.com\"$(if [[ "${SUB_OPERATOR}" == "StringEquals" ]]; then echo ",
+          \"${GITHUB_OIDC_PROVIDER}:sub\": \"${SUB_VALUE}\""; fi)
+        }$(if [[ "${SUB_OPERATOR}" == "StringLike" ]]; then echo ",
+        \"StringLike\": {
           \"${GITHUB_OIDC_PROVIDER}:sub\": \"${SUB_VALUE}\"
-        }
+        }"; fi)
       }
     }"
 done
