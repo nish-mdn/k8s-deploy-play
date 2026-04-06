@@ -1,0 +1,272 @@
+#!/bin/bash
+# =============================================================================
+# STEP 3 of 3: GITHUB — Configure Repository Secrets
+#
+# Run this from any machine with the GitHub CLI (gh) installed and authenticated,
+# or manually add these secrets in GitHub UI:
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#
+# What it does:
+#   Adds the 4 required secrets to your GitHub repository.
+#   These contain ONLY non-sensitive infrastructure metadata — no auth credentials.
+#
+# Prerequisites:
+#   - Steps 01 (master node) and 02 (AWS IAM) completed
+#   - GitHub CLI authenticated: gh auth login
+#
+# Usage:
+#   bash 03-github-setup.sh
+# =============================================================================
+set -euo pipefail
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FILL THESE IN
+# ──────────────────────────────────────────────────────────────────────────────
+GITHUB_ORG="nish-mdn"
+GITHUB_REPO="k8s-deploy-play"
+
+# From step 02 output
+AWS_ROLE_ARN="arn:aws:iam::177701659471:role/github-actions-k8s-deployer"
+
+# Your K8s master node API server address (must be reachable from GitHub runners)
+K8S_CLUSTER_URL="https://34.234.71.11:6443"
+
+# From step 01 — must match the CLUSTER_ID variable
+K8S_CLUSTER_ID="k8s-self-managed"
+
+# Base64-encoded cluster CA certificate.
+# Get this from master node: base64 -w0 /var/lib/kubernetes/ca.crt
+K8S_CLUSTER_CA_DATA="LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUN0ekNDQVo4Q0ZIVkg3bHhYZ3pBbm1vR0lnaVJjdTIyWEVqbUxNQTBHQ1NxR1NJYjNEUUVCQ3dVQU1CZ3gKRmpBVUJnTlZCQU1NRFV0VlFrVlNUa1ZVUlZNdFEwRXdIaGNOTWpZd016RTJNVFF6T1RNNFdoY05Namd4TWpFdwpNVFF6T1RNNFdqQVlNUll3RkFZRFZRUUREQTFMVlVKRlVrNUZWRVZUTFVOQk1JSUJJakFOQmdrcWhraUc5dzBCCkFRRUZBQU9DQVE4QU1JSUJDZ0tDQVFFQTBYWmZVVWZVZEwzazN3S09xRnY3TTYyTElvSVIwRVRNc214WHlJSXcKb1k2ZHlFUkZQbUxCMHVCbGcvdXBSRnR4cFk5MDFrYnR0NzhUWG5QcHI2SENoLytBM0JTVUY0VFZmbm1pa3FDVgpnMy9RdHE5L29oMDM4Tjl1eTd2eWVHc3l4VURCTHo1TlYwcUpsaVcxMnczdTlrUUdsdHBUbnN5S0hNeUVDR2pBCjNFeFAyaXlJUzZXZFZERUFvcXc2K3o5ZVNjaGpnbk5hZ0dMNW9NdTRFNDZIZTNycE8xRVZqdGNockh3WE54SFIKSHk5R2tqZXYycitLUUpqZHNueUV4ZWhZVCtodE9XV0dNeXM0RkNEVmdKNHhMaG9hcGZZa1c2eHBjWmRnTzB0Vwp6SkRWUHJOYXY4U2FESE9xOHZvTkthazhFbWJlcHBOT0dpckpIU1MzV2duTW1RSURBUUFCTUEwR0NTcUdTSWIzCkRRRUJDd1VBQTRJQkFRQW1zLzc1cmxsQ05kbnY2blRkSFdxU3lZejRrckVtYWlkVitWTS9FNmpMRFZyaGVtUEIKUEVBZFZLRk83aU1Uay9OeVJXVGRiVzhtKy9YUVBMMHNQUThBVWZLVys5aDdzTkxSbW5zY1ExMm9mRFBvaHZWYgpzeVNYeHlrc1plUHp4b1c0dUlDTmxFa2FDbitKTWxiaUdWaU55a2Y2bWsxRzloUHNFUHo3VzZSb0NCaVNTaW5XCmxkN3EyNWNEYjhsNklhbVhXaVA5a3NLSEhWaEk4OTNQOXN4d3RyRVR2UHF1Lyt2Y2xJbGFCdmkwTDRNb3FqVCsKWHlmRTJ5TWxVUXl4UWRCY2VQS09jbTkrdFVaaEdOK2JWRkhlUllpTmVwTjZmV3JnbUtPUTRhSW04NFBWNlBuUQpvTzFFMytKT01Ub0R4WVFFS2ZoNHUyZ3d1c1d2ZVFQOGxNL2kKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo="
+# ──────────────────────────────────────────────────────────────────────────────
+
+REPO="${GITHUB_ORG}/${GITHUB_REPO}"
+
+echo "============================================================"
+echo "  GitHub Repository Secrets Setup"
+echo "============================================================"
+echo ""
+echo "  Repository: ${REPO}"
+echo ""
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Verify gh CLI is available and authenticated
+# ──────────────────────────────────────────────────────────────────────────────
+if ! command -v gh &>/dev/null; then
+  echo "============================================================"
+  echo "  GitHub CLI (gh) not found."
+  echo "  Add these secrets manually in GitHub UI:"
+  echo ""
+  echo "  Repo → Settings → Secrets and variables → Actions"
+  echo ""
+  echo "  ┌──────────────────────┬──────────────────────────────────┐"
+  echo "  │ Secret Name          │ Value                            │"
+  echo "  ├──────────────────────┼──────────────────────────────────┤"
+  echo "  │ AWS_ROLE_ARN         │ ${AWS_ROLE_ARN}                  │"
+  echo "  │ K8S_CLUSTER_URL      │ ${K8S_CLUSTER_URL}               │"
+  echo "  │ K8S_CLUSTER_ID       │ ${K8S_CLUSTER_ID}                │"
+  echo "  │ K8S_CLUSTER_CA_DATA  │ (base64 of ca.crt — see below)  │"
+  echo "  └──────────────────────┴──────────────────────────────────┘"
+  echo ""
+  echo "  To get K8S_CLUSTER_CA_DATA, run on master node:"
+  echo "    base64 -w0 /var/lib/kubernetes/ca.crt"
+  echo ""
+  echo "============================================================"
+  exit 0
+fi
+
+echo "==> Setting secrets via GitHub CLI"
+echo ""
+
+# Secret 1: AWS IAM Role ARN
+echo "    Setting AWS_ROLE_ARN..."
+echo "${AWS_ROLE_ARN}" | gh secret set AWS_ROLE_ARN --repo="${REPO}"
+
+# Secret 2: K8s API server URL
+echo "    Setting K8S_CLUSTER_URL..."
+echo "${K8S_CLUSTER_URL}" | gh secret set K8S_CLUSTER_URL --repo="${REPO}"
+
+# Secret 3: Cluster ID (must match aws-iam-authenticator --cluster-id)
+echo "    Setting K8S_CLUSTER_ID..."
+echo "${K8S_CLUSTER_ID}" | gh secret set K8S_CLUSTER_ID --repo="${REPO}"
+
+# Secret 4: Base64-encoded cluster CA cert
+echo "    Setting K8S_CLUSTER_CA_DATA..."
+echo "${K8S_CLUSTER_CA_DATA}" | gh secret set K8S_CLUSTER_CA_DATA --repo="${REPO}"
+
+echo ""
+echo "============================================================"
+echo "  GitHub Secrets Setup Complete!"
+echo "============================================================"
+echo ""
+echo "  Secrets configured:"
+echo "    ✓ AWS_ROLE_ARN          — IAM role for OIDC auth"
+echo "    ✓ K8S_CLUSTER_URL       — API server endpoint"
+echo "    ✓ K8S_CLUSTER_ID        — aws-iam-authenticator cluster ID"
+echo "    ✓ K8S_CLUSTER_CA_DATA   — Cluster CA (for TLS, not auth)"
+echo ""
+echo "  NONE of these are authentication credentials."
+echo "  Auth happens dynamically via OIDC → STS → aws-iam-authenticator."
+echo ""
+echo "============================================================"
+echo ""
+echo "  ┌─────────────────────────────────────────────────────────┐"
+echo "  │  IMPORTANT: Network Connectivity                       │"
+echo "  │                                                         │"
+echo "  │  GitHub-managed runners must reach your API server at:  │"
+echo "  │  ${K8S_CLUSTER_URL}                                     │"
+echo "  │                                                         │"
+echo "  │  Ensure your security group / firewall allows inbound   │"
+echo "  │  TCP 6443 from GitHub Actions IP ranges.                │"
+echo "  │                                                         │"
+echo "  │  GitHub publishes runner IPs at:                        │"
+echo "  │  https://api.github.com/meta  (look for 'actions' key) │"
+echo "  └─────────────────────────────────────────────────────────┘"
+echo ""
+echo "============================================================"
+echo "  END-TO-END FLOW — DETAILED EXPLANATION"
+echo "============================================================"
+echo ""
+echo "  STEP 1: Developer pushes code to auth-app/ or blog-app/"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  A developer commits and pushes changes to the main branch."
+echo "  For example, they modify auth-app/06-application.yaml."
+echo "  GitHub detects the push event and evaluates which workflows"
+echo "  to trigger based on the 'paths' filter in each workflow file."
+echo "  Since only auth-app/ files changed, ONLY deploy-auth-app.yaml"
+echo "  runs. deploy-blog-app.yaml is skipped entirely because no"
+echo "  files under blog-app/ were modified. This is how selective"
+echo "  deployment works — each microservice has its own workflow"
+echo "  with its own path filter."
+echo ""
+echo "  STEP 2: GitHub Actions triggers the matching workflow"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  GitHub spins up a fresh ubuntu-latest runner (ephemeral VM)."
+echo "  This runner has no pre-existing credentials, kubeconfig, or"
+echo "  AWS keys. It's a clean slate every time. GitHub assigns the"
+echo "  workflow the permissions declared in the YAML:"
+echo "    - id-token: write  → allows requesting an OIDC JWT token"
+echo "    - contents: read   → allows checking out the repo code"
+echo ""
+echo "  STEP 3: Workflow requests an OIDC token from GitHub"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  The aws-actions/configure-aws-credentials action calls"
+echo "  GitHub's internal OIDC endpoint:"
+echo "    https://token.actions.githubusercontent.com"
+echo "  GitHub issues a short-lived JWT (JSON Web Token) that contains"
+echo "  claims identifying WHO is asking:"
+echo "    - iss: token.actions.githubusercontent.com (issuer)"
+echo "    - sub: repo:your-org/k8s-deploy-play:ref:refs/heads/main"
+echo "    - aud: sts.amazonaws.com (audience = AWS STS)"
+echo "  This JWT is signed by GitHub's private key and is valid for"
+echo "  only a few minutes. It contains NO secrets — just claims."
+echo ""
+echo "  STEP 4: GitHub OIDC token is exchanged for AWS STS credentials"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  The action calls AWS STS AssumeRoleWithWebIdentity API:"
+echo "    - Sends the GitHub JWT token"
+echo "    - Sends the IAM Role ARN (from secrets.AWS_ROLE_ARN)"
+echo "  AWS STS does the following validation:"
+echo "    a) Checks that token.actions.githubusercontent.com is a"
+echo "       registered OIDC provider in this AWS account → YES"
+echo "       (we created this in step 02-aws-iam-setup.sh)"
+echo "    b) Verifies the JWT signature using GitHub's public keys"
+echo "       (published at GitHub's JWKS endpoint) → VALID"
+echo "    c) Checks the trust policy on the IAM role:"
+echo "       - Does the 'sub' claim match the condition?"
+echo "         repo:your-org/k8s-deploy-play:ref:refs/heads/main → YES"
+echo "       - Does the 'aud' claim match? sts.amazonaws.com → YES"
+echo "    d) All checks pass → STS issues temporary credentials:"
+echo "       - AWS_ACCESS_KEY_ID (temporary)"
+echo "       - AWS_SECRET_ACCESS_KEY (temporary)"
+echo "       - AWS_SESSION_TOKEN (temporary)"
+echo "       These expire in ~1 hour. They are set as environment"
+echo "       variables in the runner for subsequent steps."
+echo ""
+echo "  STEP 5: kubectl invokes aws-iam-authenticator to get a K8s token"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  When kubectl runs (e.g., kubectl apply -f auth-app/), it reads"
+echo "  the kubeconfig which has an 'exec' plugin configured:"
+echo "    user:"
+echo "      exec:"
+echo "        command: aws-iam-authenticator"
+echo "        args: [token, -i, k8s-self-managed]"
+echo "  kubectl executes: aws-iam-authenticator token -i k8s-self-managed"
+echo "  This command uses the temporary AWS credentials (from step 4)"
+echo "  to create a presigned GetCallerIdentity STS URL, then encodes"
+echo "  it as a Kubernetes-compatible bearer token (k8s-aws-v1.xxxxx)."
+echo "  This token is NOT an AWS credential — it's a presigned URL"
+echo "  that the API server can use to verify the caller's identity."
+echo "  It's valid for ~15 minutes. kubectl sends this token in the"
+echo "  Authorization header of its HTTPS request to the API server."
+echo ""
+echo "  STEP 6: kube-apiserver receives the request and forwards"
+echo "          the token to aws-iam-authenticator webhook"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  kube-apiserver receives the kubectl request with bearer token."
+echo "  It doesn't know how to validate k8s-aws-v1.xxxxx tokens on"
+echo "  its own, so it forwards the token to the webhook configured in:"
+echo "    --authentication-token-webhook-config-file"
+echo "  This webhook points to aws-iam-authenticator server running"
+echo "  on localhost:21362 on the master node. The request goes:"
+echo "    kube-apiserver → https://127.0.0.1:21362/authenticate"
+echo "  The webhook request contains the bearer token for validation."
+echo ""
+echo "  STEP 7: aws-iam-authenticator validates the token against STS"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  The authenticator on the master node receives the token and:"
+echo "    a) Decodes the base64 token to extract the presigned STS URL"
+echo "    b) Calls the presigned URL (sts:GetCallerIdentity)"
+echo "       AWS STS responds with the IAM identity:"
+echo "         - ARN: arn:aws:sts::177701659471:assumed-role/"
+echo "                github-actions-k8s-deployer/session-name"
+echo "    c) Looks up this IAM role ARN in the aws-auth ConfigMap"
+echo "       (in kube-system namespace) for a mapping:"
+echo "         roleARN: arn:aws:iam::177701659471:role/"
+echo "                  github-actions-k8s-deployer"
+echo "         username: github-deployer"
+echo "         groups: [system:deployers]"
+echo "    d) Returns a TokenReview response to kube-apiserver:"
+echo "         authenticated: true"
+echo "         user: github-deployer"
+echo "         groups: [system:deployers]"
+echo ""
+echo "  STEP 8: kube-apiserver authorizes via RBAC and executes"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  Now kube-apiserver knows the request is from user"
+echo "  'github-deployer' in group 'system:deployers'."
+echo "  It checks RBAC:"
+echo "    - Is there a ClusterRoleBinding for group system:deployers?"
+echo "      → YES: github-deployer-binding → ClusterRole: github-deployer"
+echo "    - Does ClusterRole 'github-deployer' allow the requested"
+echo "      action (e.g., 'create Deployment in namespace auth-service')?"
+echo "      → YES: rules allow create/update/patch on deployments"
+echo "  Authorization passes. kube-apiserver executes the kubectl apply"
+echo "  and creates/updates the Kubernetes resources."
+echo ""
+echo "  STEP 9: Kubeconfig deleted — nothing persists"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  The 'Cleanup kubeconfig' step runs with 'if: always()' which"
+echo "  means it runs even if a previous step failed:"
+echo "    rm -f \$HOME/.kube/config"
+echo "  This deletes the kubeconfig from the runner's filesystem."
+echo "  But even if cleanup is skipped, the runner VM is destroyed"
+echo "  after the job completes (GitHub-managed runners are ephemeral)."
+echo "  The temporary AWS credentials (from step 4) expire in ~1 hour."
+echo "  The presigned STS token (from step 5) expires in ~15 minutes."
+echo "  No static credentials exist anywhere in the entire pipeline:"
+echo "    - No AWS access keys stored in GitHub secrets"
+echo "    - No K8s client certificates or tokens stored anywhere"
+echo "    - No kubeconfig with embedded credentials in any secret store"
+echo ""
+echo "  SECURITY SUMMARY"
+echo "  ─────────────────────────────────────────────────────────"
+echo "  Credentials created : NONE (all are dynamically generated)"
+echo "  GitHub OIDC JWT     : ~5 minutes TTL, scoped to this workflow run"
+echo "  AWS STS credentials : ~1 hour TTL, scoped to IAM role with zero"
+echo "                        AWS permissions (only K8s auth)"
+echo "  K8s bearer token    : ~15 minutes TTL, presigned URL only"
+echo "  Runner              : destroyed after job (ephemeral VM)"
+echo "  Kubeconfig          : deleted explicitly + VM destroyed"
+echo ""
+echo "  Zero static credentials stored anywhere in the pipeline."
+echo "============================================================"

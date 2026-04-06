@@ -1,0 +1,91 @@
+name: Deploy Blog App
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'blog-app/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'blog-app/**'
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    name: Deploy Blog App
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Install aws-iam-authenticator
+        run: |
+          curl -Lo aws-iam-authenticator \
+            "https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.26/aws-iam-authenticator_0.6.26_linux_amd64"
+          chmod +x aws-iam-authenticator
+          sudo mv aws-iam-authenticator /usr/local/bin/
+          aws-iam-authenticator version
+
+      - name: Build kubeconfig dynamically
+        run: |
+          kubectl config set-cluster k8s-self-managed \
+            --server="${{ secrets.K8S_CLUSTER_URL }}" \
+            --certificate-authority=<(echo "${{ secrets.K8S_CLUSTER_CA_DATA }}" | base64 -d) \
+            --embed-certs=true
+
+          # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
+          # on each kubectl call. No static K8s credentials stored anywhere.
+          kubectl config set-credentials github-deployer \
+            --exec-api-version=client.authentication.k8s.io/v1beta1 \
+            --exec-command=aws-iam-authenticator \
+            --exec-arg=token \
+            --exec-arg=-i \
+            --exec-arg="${{ secrets.K8S_CLUSTER_ID }}"
+
+          kubectl config set-context k8s-self-managed \
+            --cluster=k8s-self-managed \
+            --user=github-deployer
+
+          kubectl config use-context k8s-self-managed
+
+      - name: Verify cluster connectivity
+        run: kubectl cluster-info
+
+      - name: Deploy blog-app manifests
+        run: |
+          echo "Deploying blog-app manifests..."
+          kubectl apply -f blog-app/rails-db-deployment.yaml
+          kubectl apply -f blog-app/rails-db-service.yaml
+          kubectl apply -f blog-app/rails-app-deployment.yaml
+          kubectl apply -f blog-app/rails-app-service.yaml
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/rails-db-pod --timeout=300s
+          kubectl rollout status deployment/rails-app-pod --timeout=300s
+
+      - name: Cleanup kubeconfig
+        if: always()
+        run: rm -f $HOME/.kube/config
