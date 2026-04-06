@@ -97,7 +97,7 @@ for chunk_file in "${TMPDIR}"/chunk_*; do
     --output text 2>/dev/null || echo "None")
 
   if [[ "${EXISTING_PL_ID}" != "None" && -n "${EXISTING_PL_ID}" ]]; then
-    echo "    Prefix list exists: ${EXISTING_PL_ID} — updating entries..."
+    echo "    Prefix list exists: ${EXISTING_PL_ID} - updating entries..."
 
     # Get current version (required for modification)
     CURRENT_VERSION=$(aws ec2 describe-managed-prefix-lists \
@@ -106,7 +106,7 @@ for chunk_file in "${TMPDIR}"/chunk_*; do
       --query "PrefixLists[0].Version" \
       --output text)
 
-    # Remove all existing entries first
+    # Remove all existing entries in batches of 100
     EXISTING_ENTRIES=$(aws ec2 get-managed-prefix-list-entries \
       --region "${AWS_REGION}" \
       --prefix-list-id "${EXISTING_PL_ID}" \
@@ -114,63 +114,124 @@ for chunk_file in "${TMPDIR}"/chunk_*; do
       --output text 2>/dev/null || echo "")
 
     if [[ -n "${EXISTING_ENTRIES}" ]]; then
-      REMOVE_ENTRIES=""
-      for cidr in ${EXISTING_ENTRIES}; do
-        REMOVE_ENTRIES="${REMOVE_ENTRIES} Cidr=${cidr}"
+      echo "${EXISTING_ENTRIES}" | tr '\t' '\n' > "${TMPDIR}/existing_entries.txt"
+      split -l 100 "${TMPDIR}/existing_entries.txt" "${TMPDIR}/remove_batch_"
+
+
+      for batch_file in "${TMPDIR}"/remove_batch_*; do
+        REMOVE_ENTRIES=""
+        while IFS= read -r cidr; do
+          REMOVE_ENTRIES="${REMOVE_ENTRIES} Cidr=${cidr}"
+        done < "${batch_file}"
+
+        CURRENT_VERSION=$(aws ec2 describe-managed-prefix-lists \
+          --region "${AWS_REGION}" \
+          --prefix-list-ids "${EXISTING_PL_ID}" \
+          --query "PrefixLists[0].Version" \
+          --output text)
+
+        aws ec2 modify-managed-prefix-list \
+          --region "${AWS_REGION}" \
+          --prefix-list-id "${EXISTING_PL_ID}" \
+          --current-version "${CURRENT_VERSION}" \
+          --remove-entries ${REMOVE_ENTRIES}
+
+        # Wait for prefix list to leave "modify-in-progress" state
+        aws ec2 wait prefix-list-modified \
+          --region "${AWS_REGION}" \
+          --prefix-list-id "${EXISTING_PL_ID}" 2>/dev/null || sleep 3
       done
+      rm -f "${TMPDIR}"/remove_batch_* "${TMPDIR}/existing_entries.txt"
+    fi
 
-      aws ec2 modify-managed-prefix-list \
-        --region "${AWS_REGION}" \
-        --prefix-list-id "${EXISTING_PL_ID}" \
-        --current-version "${CURRENT_VERSION}" \
-        --remove-entries ${REMOVE_ENTRIES} 2>/dev/null || true
+    # Add new entries in batches of 100
+    split -l 100 "${chunk_file}" "${TMPDIR}/add_batch_"
+    BATCH_NUM=0
+    TOTAL_BATCHES=$(ls "${TMPDIR}"/add_batch_* | wc -l)
 
-      # Re-fetch version after modification
+    for batch_file in "${TMPDIR}"/add_batch_*; do
+      BATCH_NUM=$((BATCH_NUM + 1))
+      BATCH_SIZE=$(wc -l < "${batch_file}")
+      echo "      Adding batch ${BATCH_NUM}/${TOTAL_BATCHES} (${BATCH_SIZE} entries)..."
+
+      ADD_ENTRIES=""
+      while IFS= read -r cidr; do
+        ADD_ENTRIES="${ADD_ENTRIES} Cidr=${cidr},Description=github-actions"
+      done < "${batch_file}"
+
       CURRENT_VERSION=$(aws ec2 describe-managed-prefix-lists \
         --region "${AWS_REGION}" \
         --prefix-list-ids "${EXISTING_PL_ID}" \
         --query "PrefixLists[0].Version" \
         --output text)
-    fi
 
-    # Add new entries
-    ADD_ENTRIES=""
-    while IFS= read -r cidr; do
-      ADD_ENTRIES="${ADD_ENTRIES} Cidr=${cidr},Description=github-actions"
-    done < "${chunk_file}"
+      aws ec2 modify-managed-prefix-list \
+        --region "${AWS_REGION}" \
+        --prefix-list-id "${EXISTING_PL_ID}" \
+        --current-version "${CURRENT_VERSION}" \
+        --add-entries ${ADD_ENTRIES}
 
-    aws ec2 modify-managed-prefix-list \
-      --region "${AWS_REGION}" \
-      --prefix-list-id "${EXISTING_PL_ID}" \
-      --current-version "${CURRENT_VERSION}" \
-      --add-entries ${ADD_ENTRIES}
+      # Wait for prefix list to leave "modify-in-progress" state
+      aws ec2 wait prefix-list-modified \
+        --region "${AWS_REGION}" \
+        --prefix-list-id "${EXISTING_PL_ID}" 2>/dev/null || sleep 3
+    done
+    rm -f "${TMPDIR}"/add_batch_*
 
     PREFIX_LIST_IDS+=("${EXISTING_PL_ID}")
     echo "    Updated: ${EXISTING_PL_ID}"
   else
-    echo "    Creating new prefix list: ${LIST_NAME}..."
+    echo "    Creating new prefix list: ${LIST_NAME} (empty, then adding in batches)..."
 
-    # Build the entries JSON
-    ENTRIES_JSON="["
-    FIRST=true
-    while IFS= read -r cidr; do
-      if [[ "${FIRST}" == true ]]; then
-        FIRST=false
-      else
-        ENTRIES_JSON="${ENTRIES_JSON},"
-      fi
-      ENTRIES_JSON="${ENTRIES_JSON}{\"Cidr\":\"${cidr}\",\"Description\":\"github-actions\"}"
-    done < "${chunk_file}"
-    ENTRIES_JSON="${ENTRIES_JSON}]"
-
+    # Create the prefix list empty first (no entries)
     NEW_PL_ID=$(aws ec2 create-managed-prefix-list \
       --region "${AWS_REGION}" \
       --prefix-list-name "${LIST_NAME}" \
       --address-family "IPv4" \
-      --entries "${ENTRIES_JSON}" \
       --max-entries "${MAX_ENTRIES_PER_LIST}" \
       --query "PrefixList.PrefixListId" \
       --output text)
+
+    echo "    Created: ${NEW_PL_ID} — now adding entries in batches of 100..."
+
+    # Wait for prefix list to be ready
+    aws ec2 wait prefix-list-modified \
+      --region "${AWS_REGION}" \
+      --prefix-list-id "${NEW_PL_ID}" 2>/dev/null || sleep 3
+
+    # Add entries in batches of 100
+    split -l 100 "${chunk_file}" "${TMPDIR}/create_batch_"
+    BATCH_NUM=0
+    TOTAL_BATCHES=$(ls "${TMPDIR}"/create_batch_* | wc -l)
+
+    for batch_file in "${TMPDIR}"/create_batch_*; do
+      BATCH_NUM=$((BATCH_NUM + 1))
+      BATCH_SIZE=$(wc -l < "${batch_file}")
+      echo "      Adding batch ${BATCH_NUM}/${TOTAL_BATCHES} (${BATCH_SIZE} entries)..."
+
+      ADD_ENTRIES=""
+      while IFS= read -r cidr; do
+        ADD_ENTRIES="${ADD_ENTRIES} Cidr=${cidr},Description=github-actions"
+      done < "${batch_file}"
+
+      CURRENT_VERSION=$(aws ec2 describe-managed-prefix-lists \
+        --region "${AWS_REGION}" \
+        --prefix-list-ids "${NEW_PL_ID}" \
+        --query "PrefixLists[0].Version" \
+        --output text)
+
+      aws ec2 modify-managed-prefix-list \
+        --region "${AWS_REGION}" \
+        --prefix-list-id "${NEW_PL_ID}" \
+        --current-version "${CURRENT_VERSION}" \
+        --add-entries ${ADD_ENTRIES}
+
+      # Wait for prefix list to leave "modify-in-progress" state
+      aws ec2 wait prefix-list-modified \
+        --region "${AWS_REGION}" \
+        --prefix-list-id "${NEW_PL_ID}" 2>/dev/null || sleep 3
+    done
+    rm -f "${TMPDIR}"/create_batch_*
 
     PREFIX_LIST_IDS+=("${NEW_PL_ID}")
     echo "    Created: ${NEW_PL_ID}"
