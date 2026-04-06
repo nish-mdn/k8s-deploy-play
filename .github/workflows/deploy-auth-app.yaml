@@ -38,7 +38,7 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: 'latest'
+          version: 'v1.31.4'
 
       - name: Install aws-iam-authenticator
         run: |
@@ -58,7 +58,7 @@ jobs:
           # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
           # on each kubectl call. No static K8s credentials stored anywhere.
           kubectl config set-credentials github-deployer \
-            --exec-api-version=client.authentication.k8s.io/v1beta1 \
+            --exec-api-version=client.authentication.k8s.io/v1 \
             --exec-command=aws-iam-authenticator \
             --exec-arg=token \
             --exec-arg=-i \
@@ -70,8 +70,22 @@ jobs:
 
           kubectl config use-context k8s-self-managed
 
+      - name: Verify token generation
+        run: |
+          echo "--- Checking AWS identity ---"
+          aws sts get-caller-identity
+          echo ""
+          echo "--- Generating k8s token ---"
+          TOKEN_JSON=$(aws-iam-authenticator token -i "${{ secrets.K8S_CLUSTER_ID }}" 2>&1) || true
+          echo "Token output length: ${#TOKEN_JSON}"
+          echo "Contains k8s-aws-v1: $(echo "$TOKEN_JSON" | grep -co 'k8s-aws-v1' || echo '0')"
+          echo "API version: $(echo "$TOKEN_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("apiVersion","MISSING"))' 2>/dev/null || echo 'PARSE_FAILED')"
+          echo ""
+          echo "--- Kubeconfig structure ---"
+          kubectl config view
+
       - name: Verify cluster connectivity
-        run: kubectl cluster-info
+        run: kubectl cluster-info --v=6
 
       - name: Deploy auth-app manifests
         run: |
