@@ -6,14 +6,14 @@
 #
 # What it does:
 #   1. Downloads and installs aws-iam-authenticator binary
-#   2. Creates the webhook token authentication config file
-#   3. Creates the aws-iam-authenticator ConfigMap (IAM → K8s user mapping)
+#   2. Creates the IAM role mapping config file (MountedFile backend)
+#   3. Creates systemd service — auto-generates TLS certs + webhook kubeconfig
 #   4. Adds --authentication-token-webhook-config-file flag to kube-apiserver
-#   5. Restarts kube-apiserver
+#   5. Creates RBAC for the deployer identity
+#   6. Starts aws-iam-authenticator and restarts kube-apiserver
 #
-# After this, any IAM identity mapped in the ConfigMap can authenticate
-# to the K8s API server using short-lived STS tokens — no static K8s
-# credentials needed.
+# Key: aws-iam-authenticator AUTO-GENERATES its own TLS certs and webhook
+# kubeconfig. No manual cert creation needed.
 #
 # Prerequisites:
 #   - kube-apiserver runs via systemd (Kubernetes the Hard Way style)
@@ -44,8 +44,10 @@ CLUSTER_ID="k8s-self-managed"
 
 AUTHENTICATOR_VERSION="0.6.26"
 AUTHENTICATOR_BIN="/usr/local/bin/aws-iam-authenticator"
-WEBHOOK_CONFIG="/etc/kubernetes/aws-iam-authenticator/webhook-config.yaml"
-AUTHENTICATOR_KUBECONFIG="/etc/kubernetes/aws-iam-authenticator/authenticator-kubeconfig.yaml"
+CONFIG_DIR="/etc/kubernetes/aws-iam-authenticator"
+STATE_DIR="/var/aws-iam-authenticator"
+AUTH_CONFIG="${CONFIG_DIR}/config.yaml"
+GENERATED_WEBHOOK_KUBECONFIG="${CONFIG_DIR}/kubeconfig.yaml"
 UNIT_FILE="/etc/systemd/system/kube-apiserver.service"
 GITHUB_ACTIONS_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${GITHUB_ACTIONS_ROLE_NAME}"
 
@@ -80,71 +82,52 @@ fi
 # 2. Create directory structure
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 2: Creating config directory"
-mkdir -p /etc/kubernetes/aws-iam-authenticator
-echo "    Directory created: /etc/kubernetes/aws-iam-authenticator"
+echo "==> Step 2: Creating directories"
+mkdir -p "${CONFIG_DIR}"
+mkdir -p "${STATE_DIR}"
+echo "    Config dir: ${CONFIG_DIR}"
+echo "    State dir:  ${STATE_DIR} (auto-generated TLS certs stored here)"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Generate signing keypair for aws-iam-authenticator
-#    The authenticator uses this to sign/verify its own internal state.
-# ──────────────────────────────────────────────────────────────────────────────
-echo ""
-echo "==> Step 3: Generating signing keypair"
-
-CERT_DIR="/etc/kubernetes/aws-iam-authenticator"
-if [[ -f "${CERT_DIR}/aws-iam-authenticator.crt" && -f "${CERT_DIR}/aws-iam-authenticator.key" ]]; then
-  echo "    Keypair already exists — skipping."
-else
-  openssl req -x509 -newkey rsa:2048 \
-    -keyout "${CERT_DIR}/aws-iam-authenticator.key" \
-    -out "${CERT_DIR}/aws-iam-authenticator.crt" \
-    -days 3650 -nodes \
-    -subj "/CN=aws-iam-authenticator"
-  chmod 600 "${CERT_DIR}/aws-iam-authenticator.key"
-  echo "    Keypair generated."
-fi
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 4. Create the webhook token authentication config
-#    This tells kube-apiserver how to reach aws-iam-authenticator for
-#    token validation. The authenticator runs on localhost:21362.
+# 3. Create IAM role mapping config file (MountedFile backend)
+#    aws-iam-authenticator reads this file to map IAM roles → K8s users.
+#    This is the default backend (--backend-mode MountedFile).
+#    NO ConfigMap or CRD needed — just a local YAML file.
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 4: Creating webhook config"
+echo "==> Step 3: Creating IAM role mapping config"
 
-cat > "${WEBHOOK_CONFIG}" <<EOF
-# Webhook Token Authentication Config for aws-iam-authenticator
-# kube-apiserver sends bearer tokens here for validation
-apiVersion: v1
-kind: Config
-clusters:
-  - name: aws-iam-authenticator
-    cluster:
-      server: https://127.0.0.1:21362/authenticate
-      certificate-authority: ${CERT_DIR}/aws-iam-authenticator.crt
-users:
-  - name: apiserver
-    user:
-      client-certificate: ${CERT_DIR}/aws-iam-authenticator.crt
-      client-key: ${CERT_DIR}/aws-iam-authenticator.key
-current-context: webhook
-contexts:
-  - name: webhook
-    context:
-      cluster: aws-iam-authenticator
-      user: apiserver
+cat > "${AUTH_CONFIG}" <<EOF
+# aws-iam-authenticator configuration (MountedFile backend)
+# Maps IAM roles/users to Kubernetes usernames and groups
+clusterID: ${CLUSTER_ID}
+server:
+  mapRoles:
+    # GitHub Actions deployer role — assumed via OIDC
+    - roleARN: ${GITHUB_ACTIONS_ROLE_ARN}
+      username: ${K8S_USERNAME}
+      groups:
+        - ${K8S_GROUP}
 EOF
 
-chmod 600 "${WEBHOOK_CONFIG}"
-echo "    Webhook config written to: ${WEBHOOK_CONFIG}"
+chmod 600 "${AUTH_CONFIG}"
+echo "    Config written to: ${AUTH_CONFIG}"
+echo "    Contents:"
+cat "${AUTH_CONFIG}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Create aws-iam-authenticator systemd service
-#    This runs the authenticator as a daemon that listens on localhost:21362
+# 4. Create aws-iam-authenticator systemd service
+#    Flags used:
+#      --cluster-id    : scopes tokens to this cluster
+#      --state-dir     : auto-generates TLS cert+key here for webhook HTTPS
+#      --generate-kubeconfig : auto-generates webhook kubeconfig for kube-apiserver
+#      -c              : path to the IAM role mapping config (MountedFile)
+#
+#    The authenticator listens on https://127.0.0.1:21362/authenticate
 #    and validates tokens against AWS STS.
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 5: Creating aws-iam-authenticator systemd service"
+echo "==> Step 4: Creating aws-iam-authenticator systemd service"
 
 cat > /etc/systemd/system/aws-iam-authenticator.service <<EOF
 [Unit]
@@ -156,10 +139,9 @@ After=network.target
 Type=simple
 ExecStart=${AUTHENTICATOR_BIN} server \\
   --cluster-id=${CLUSTER_ID} \\
-  --state-dir=/var/aws-iam-authenticator \\
-  --kubeconfig=${AUTHENTICATOR_KUBECONFIG} \\
-  --tls-cert-file=${CERT_DIR}/aws-iam-authenticator.crt \\
-  --tls-private-key-file=${CERT_DIR}/aws-iam-authenticator.key
+  --state-dir=${STATE_DIR} \\
+  --generate-kubeconfig=${GENERATED_WEBHOOK_KUBECONFIG} \\
+  -c ${AUTH_CONFIG}
 Restart=on-failure
 RestartSec=5s
 
@@ -168,89 +150,16 @@ WantedBy=multi-user.target
 EOF
 
 echo "    Service unit file created."
-
-# Create state directory
-mkdir -p /var/aws-iam-authenticator
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 6. Create kubeconfig for aws-iam-authenticator to talk to kube-apiserver
-#    The authenticator needs this to read its ConfigMap from the cluster.
-# ──────────────────────────────────────────────────────────────────────────────
-echo ""
-echo "==> Step 6: Creating authenticator kubeconfig"
-
-# Use the same CA and certs that kube-apiserver uses
-K8S_CA="/var/lib/kubernetes/ca.crt"
-# Use admin certs for the authenticator to read ConfigMaps
-ADMIN_CERT="/var/lib/kubernetes/admin.crt"
-ADMIN_KEY="/var/lib/kubernetes/admin.key"
-
-# Detect the API server address
-APISERVER_ADDR="https://127.0.0.1:6443"
-
-cat > "${AUTHENTICATOR_KUBECONFIG}" <<EOF
-apiVersion: v1
-kind: Config
-clusters:
-  - name: local
-    cluster:
-      server: ${APISERVER_ADDR}
-      certificate-authority: ${K8S_CA}
-users:
-  - name: aws-iam-authenticator
-    user:
-      client-certificate: ${ADMIN_CERT}
-      client-key: ${ADMIN_KEY}
-current-context: local
-contexts:
-  - name: local
-    context:
-      cluster: local
-      user: aws-iam-authenticator
-EOF
-
-chmod 600 "${AUTHENTICATOR_KUBECONFIG}"
-echo "    Authenticator kubeconfig written to: ${AUTHENTICATOR_KUBECONFIG}"
+echo "    Webhook kubeconfig will be auto-generated at: ${GENERATED_WEBHOOK_KUBECONFIG}"
+echo "    TLS certs will be auto-generated in: ${STATE_DIR}"
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. Create the aws-auth ConfigMap in kube-system namespace
-#    This is where IAM role → K8s user/group mappings are defined.
-#    Any IAM role listed here can authenticate to the cluster.
-# ──────────────────────────────────────────────────────────────────────────────
-echo ""
-echo "==> Step 7: Creating aws-auth ConfigMap"
-
-cat > /tmp/aws-auth-configmap.yaml <<EOF
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aws-iam-authenticator
-  namespace: kube-system
-data:
-  config.yaml: |
-    clusterID: ${CLUSTER_ID}
-    server:
-      mapRoles:
-        # GitHub Actions deployer role — mapped to a K8s user and group
-        - roleARN: ${GITHUB_ACTIONS_ROLE_ARN}
-          username: ${K8S_USERNAME}
-          groups:
-            - ${K8S_GROUP}
-EOF
-
-echo "    ConfigMap manifest:"
-cat /tmp/aws-auth-configmap.yaml
-echo ""
-kubectl apply -f /tmp/aws-auth-configmap.yaml
-echo "    ConfigMap applied."
-
-# ──────────────────────────────────────────────────────────────────────────────
-# 8. Create RBAC for the deployer user/group
+# 5. Create RBAC for the deployer user/group
 #    This gives the github-deployer identity permission to manage
 #    deployments, services, configmaps, secrets, etc.
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 8: Creating RBAC for deployer"
+echo "==> Step 5: Creating RBAC for deployer"
 
 cat > /tmp/deployer-rbac.yaml <<EOF
 ---
@@ -315,10 +224,12 @@ kubectl apply -f /tmp/deployer-rbac.yaml
 echo "    RBAC applied."
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 9. Add --authentication-token-webhook-config-file to kube-apiserver
+# 6. Add --authentication-token-webhook-config-file to kube-apiserver
+#    Points to the kubeconfig auto-generated by aws-iam-authenticator
+#    at: /etc/kubernetes/aws-iam-authenticator/kubeconfig.yaml
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 9: Patching kube-apiserver systemd unit"
+echo "==> Step 6: Patching kube-apiserver systemd unit"
 
 if [[ ! -f "${UNIT_FILE}" ]]; then
   echo "ERROR: ${UNIT_FILE} does not exist."
@@ -331,12 +242,12 @@ echo "    Backup created."
 
 if grep -q "authentication-token-webhook-config-file" "${UNIT_FILE}"; then
   echo "    --authentication-token-webhook-config-file already present — updating."
-  sed -i "s|--authentication-token-webhook-config-file=[^ \\\\]*|--authentication-token-webhook-config-file=${WEBHOOK_CONFIG}|" \
+  sed -i "s|--authentication-token-webhook-config-file=[^ \\\\]*|--authentication-token-webhook-config-file=${GENERATED_WEBHOOK_KUBECONFIG}|" \
       "${UNIT_FILE}"
 else
   echo "    Adding --authentication-token-webhook-config-file flag."
   # Insert after --authorization-mode line (common in Hard Way configs)
-  sed -i "/--authorization-mode/a\\  --authentication-token-webhook-config-file=${WEBHOOK_CONFIG} \\\\" \
+  sed -i "s|--authorization-mode=\([^ ]*\)|--authorization-mode=\1 --authentication-token-webhook-config-file=${GENERATED_WEBHOOK_KUBECONFIG}|" \
       "${UNIT_FILE}"
 fi
 
@@ -345,10 +256,14 @@ echo "==> Updated kube-apiserver unit (relevant flags):"
 grep -n "authentication-token-webhook\|authorization-mode" "${UNIT_FILE}" | head -10
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 10. Start aws-iam-authenticator and restart kube-apiserver
+# 7. Start aws-iam-authenticator and restart kube-apiserver
+#    aws-iam-authenticator must start FIRST because:
+#    - It generates the TLS cert+key in state-dir on first run
+#    - It generates the webhook kubeconfig that kube-apiserver needs
+#    Then kube-apiserver can start and use the generated webhook kubeconfig.
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 10: Starting services"
+echo "==> Step 7: Starting services"
 
 systemctl daemon-reload
 
@@ -365,6 +280,21 @@ else
   echo "    ERROR: aws-iam-authenticator failed to start."
   echo "    Check logs: journalctl -u aws-iam-authenticator --no-pager -n 30"
   exit 1
+fi
+
+# Verify the webhook kubeconfig was auto-generated
+if [[ -f "${GENERATED_WEBHOOK_KUBECONFIG}" ]]; then
+  echo "    Webhook kubeconfig generated at: ${GENERATED_WEBHOOK_KUBECONFIG}"
+else
+  echo "    WARNING: Webhook kubeconfig not yet generated. Waiting 5 more seconds..."
+  sleep 5
+  if [[ -f "${GENERATED_WEBHOOK_KUBECONFIG}" ]]; then
+    echo "    Webhook kubeconfig now generated."
+  else
+    echo "    ERROR: Webhook kubeconfig was not generated."
+    echo "    Check logs: journalctl -u aws-iam-authenticator --no-pager -n 30"
+    exit 1
+  fi
 fi
 
 # Restart kube-apiserver
@@ -392,11 +322,12 @@ echo "============================================================"
 echo ""
 echo "  What was configured:"
 echo "    1. aws-iam-authenticator binary installed"
-echo "    2. Webhook config created at: ${WEBHOOK_CONFIG}"
+echo "    2. IAM role mapping config at: ${AUTH_CONFIG}"
 echo "    3. aws-iam-authenticator running as systemd service"
-echo "    4. aws-auth ConfigMap created in kube-system namespace"
-echo "    5. RBAC ClusterRole + ClusterRoleBinding created"
-echo "    6. kube-apiserver patched with webhook auth flag"
+echo "    4. Webhook kubeconfig auto-generated at: ${GENERATED_WEBHOOK_KUBECONFIG}"
+echo "    5. TLS certs auto-generated in: ${STATE_DIR}"
+echo "    6. RBAC ClusterRole + ClusterRoleBinding created"
+echo "    7. kube-apiserver patched with webhook auth flag"
 echo ""
 echo "  Next step:"
 echo "    Run 02-aws-iam-setup.sh to create the GitHub OIDC"
