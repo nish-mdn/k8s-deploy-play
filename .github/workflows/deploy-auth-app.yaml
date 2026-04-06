@@ -62,7 +62,8 @@ jobs:
             --exec-command=aws-iam-authenticator \
             --exec-arg=token \
             --exec-arg=-i \
-            --exec-arg="${{ secrets.K8S_CLUSTER_ID }}"
+            --exec-arg="${{ secrets.K8S_CLUSTER_ID }}" \
+            --exec-interactive-mode=Never
 
           kubectl config set-context k8s-self-managed \
             --cluster=k8s-self-managed \
