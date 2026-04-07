@@ -52,8 +52,8 @@ jobs:
         run: |
           kubectl config set-cluster k8s-self-managed \
             --server="${{ secrets.K8S_CLUSTER_URL }}" \
-            --certificate-authority=<(echo "${{ secrets.K8S_CLUSTER_CA_DATA }}" | base64 -d) \
-            --embed-certs=true
+            --insecure-skip-tls-verify=true
+
 
           # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
           # on each kubectl call. No static K8s credentials stored anywhere.
