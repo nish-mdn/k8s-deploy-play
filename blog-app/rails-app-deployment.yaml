@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: rails-app
-          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-docker-repo:92d77e8
+          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-docker-repo:4492d77e8
           ports:
             - containerPort: 3000
           imagePullPolicy: Always
