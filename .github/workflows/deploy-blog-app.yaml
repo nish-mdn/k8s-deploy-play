@@ -44,9 +44,15 @@ jobs:
         run: |
           aws ec2 authorize-security-group-ingress \
             --group-id ${{ secrets.SG_ID }} \
-            --protocol tcp --port 5432 \
-            --cidr ${{ steps.ip.outputs.ipv4 }}/32 \
-            --description "GHA Ephemeral Access"
+            --ip-permissions '[{
+              "IpProtocol": "tcp",
+              "FromPort": 5432,
+              "ToPort": 5432,
+              "IpRanges": [{
+                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+                "Description": "GHA Ephemeral Access"
+              }]
+            }]'
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
