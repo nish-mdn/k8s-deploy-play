@@ -21,7 +21,7 @@ env:
 
 jobs:
   deploy:
-    name: Deploy Auth Service
+    name: Deploy Auth Service App
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
 
@@ -29,11 +29,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Get Runner Public IP
+        id: ip
+        run: echo "ipv4=$(curl -s https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Whitelist Runner IP
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ secrets.SG_ID }} \
+            --ip-permissions '[{
+              "IpProtocol": "tcp",
+              "FromPort": 5432,
+              "ToPort": 5432,
+              "IpRanges": [{
+                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+                "Description": "GHA Ephemeral Access"
+              }]
+            }]'
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
@@ -53,7 +72,6 @@ jobs:
           kubectl config set-cluster k8s-self-managed \
             --server="${{ secrets.K8S_CLUSTER_URL }}" \
             --insecure-skip-tls-verify=true
-
 
           # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
           # on each kubectl call. No static K8s credentials stored anywhere.
@@ -107,3 +125,18 @@ jobs:
       - name: Cleanup kubeconfig
         if: always()
         run: rm -f $HOME/.kube/config
+
+      - name: Revoke Runner IP (Cleanup)
+        if: always() # CRITICAL: This ensures the rule is removed even if the deployment fails
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.SG_ID }} \
+            --ip-permissions '[{
+              "IpProtocol": "tcp",
+              "FromPort": 5432,
+              "ToPort": 5432,
+              "IpRanges": [{
+                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+                "Description": "GHA Ephemeral Access"
+              }]
+            }]'
