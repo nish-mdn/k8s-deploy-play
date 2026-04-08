@@ -122,3 +122,18 @@ jobs:
       - name: Cleanup kubeconfig
         if: always()
         run: rm -f $HOME/.kube/config
+
+      - name: Revoke Runner IP (Cleanup)
+        if: always() # CRITICAL: This ensures the rule is removed even if the deployment fails
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id ${{ secrets.SG_ID }} \
+            --ip-permissions '[{
+              "IpProtocol": "tcp",
+              "FromPort": 5432,
+              "ToPort": 5432,
+              "IpRanges": [{
+                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+                "Description": "GHA Ephemeral Access"
+              }]
+            }]'
