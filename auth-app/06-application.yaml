@@ -23,7 +23,7 @@ spec:
   template:
     spec:
       containers:
-        - image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:26e5fda
+        - image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:97b9a12
 ---
 # Deployment for Rails Application
 apiVersion: apps/v1
@@ -81,7 +81,7 @@ spec:
               memory: "128Mi"
       containers:
         - name: rails-app
-          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:26e5fda # Update with your ECR registry
+          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:97b9a12 # Update with your ECR registry
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -282,7 +282,6 @@ spec:
 #           value: 2
 #           periodSeconds: 15
 #       selectPolicy: Max
-
 # ---
 # # Pod Disruption Budget
 # apiVersion: policy/v1
