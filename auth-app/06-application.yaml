@@ -20,7 +20,10 @@ spec:
       protocol: TCP
       name: http
   sessionAffinity: None
-
+  template:
+    spec:
+      containers:
+        - image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:26e5fda
 ---
 # Deployment for Rails Application
 apiVersion: apps/v1
@@ -54,13 +57,11 @@ spec:
     spec:
       # IRSA: use the annotated service account so pods can call STS
       serviceAccountName: auth-service
-      
       # Security context for pod
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-      
       # Init container to wait for database
       initContainers:
         - name: wait-for-db
@@ -69,8 +70,8 @@ spec:
             - 'sh'
             - '-c'
             - >
-              until nc -z auth-service-mysql 3306;
-              do echo waiting for db; sleep 2; done;
+              until nc -z auth-service-mysql 3306; do echo waiting for db; sleep 2; done;
+
           resources:
             requests:
               cpu: "50m"
@@ -78,23 +79,20 @@ spec:
             limits:
               cpu: "100m"
               memory: "128Mi"
-      
       containers:
         - name: rails-app
-          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:latest  # Update with your ECR registry
+          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:26e5fda # Update with your ECR registry
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http
               protocol: TCP
-          
           # Environment variables from ConfigMap and Secret
           envFrom:
             - configMapRef:
                 name: auth-service-config
             - secretRef:
                 name: auth-service-secrets
-          
           # Additional environment variables
           env:
             # ── IRSA: AWS web identity token ────────────────────────────────
@@ -127,7 +125,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-          
           # Resource management
           resources:
             requests:
@@ -136,7 +133,6 @@ spec:
             limits:
               memory: "1Gi"
               cpu: "500m"
-          
           # Liveness probe
           livenessProbe:
             httpGet:
@@ -147,7 +143,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
-          
           # Readiness probe
           readinessProbe:
             httpGet:
@@ -158,7 +153,6 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 3
-          
           # Startup probe
           startupProbe:
             httpGet:
@@ -169,7 +163,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
-          
           # Volume mounts
           volumeMounts:
             - name: app-storage
@@ -187,7 +180,6 @@ spec:
             - name: aws-iam-token
               mountPath: /var/run/secrets/irsa
               readOnly: true
-          
           # Security context for container
           securityContext:
             runAsNonRoot: true
@@ -197,7 +189,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-      
       # Volumes
       volumes:
         - name: app-storage
@@ -213,7 +204,6 @@ spec:
                   audience: sts.amazonaws.com
                   expirationSeconds: 86400
                   path: token
-      
       # Node affinity (schedule on specific nodes)
       affinity:
         podAntiAffinity:
@@ -240,17 +230,14 @@ spec:
                     operator: In
                     values:
                       - ssd
-      
       # Pod disruption budget
       terminationGracePeriodSeconds: 30
-      
       # Tolerations (if using taints on nodes)
       tolerations: []
-        # - key: "workload"
-        #   operator: "Equal"
-        #   value: "auth"
-        #   effect: "NoSchedule"
-
+      # - key: "workload"
+      #   operator: "Equal"
+      #   value: "auth"
+      #   effect: "NoSchedule"
 # ---
 # # Horizontal Pod Autoscaler
 # apiVersion: autoscaling/v2
