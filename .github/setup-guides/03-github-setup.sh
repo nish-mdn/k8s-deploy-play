@@ -29,7 +29,7 @@ GITHUB_REPO="k8s-deploy-play"
 AWS_ROLE_ARN="arn:aws:iam::177701659471:role/github-actions-k8s-deployer"
 
 # Your K8s master node API server address (must be reachable from GitHub runners)
-K8S_CLUSTER_URL="http://34.234.71.11:6443"
+K8S_CLUSTER_URL="http://54.175.138.116:6443"
 
 # From step 01 — must match the CLUSTER_ID variable
 K8S_CLUSTER_ID="k8s-self-managed"

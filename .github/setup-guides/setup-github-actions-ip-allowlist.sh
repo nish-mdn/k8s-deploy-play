@@ -34,10 +34,11 @@ set -euo pipefail
 # FILL THESE IN
 # ──────────────────────────────────────────────────────────────────────────────
 AWS_REGION="us-east-1"
-SECURITY_GROUP_ID="sg-08bf439a51e49fea8"      # Your master node's security group
+MASTER_INSTANCE_ID="i-xxxxxxxxxxxxxxxxx"      # Your master node's EC2 instance ID
 K8S_API_PORT=6443                             # kube-apiserver port
 PREFIX_LIST_NAME="github-actions-runners"     # Name prefix for managed prefix lists
 MAX_ENTRIES_PER_LIST=1000                     # AWS limit per prefix list
+GH_ACTIONS_SG_NAME="github-actions-k8s-access" # Dedicated SG for GitHub Actions
 # ──────────────────────────────────────────────────────────────────────────────
 
 echo "============================================================"
@@ -239,11 +240,49 @@ for chunk_file in "${TMPDIR}"/chunk_*; do
 done
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. Add inbound rules to security group referencing the prefix lists
+# 4. Create a DEDICATED security group for GitHub Actions access
+#    Your existing SG has hit its rule limit. An EC2 instance can have up to
+#    5 security groups attached. We create a separate SG with ONLY the
+#    prefix list rules and attach it to the master node alongside the existing SG.
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "==> Step 4: Setting up dedicated security group"
+
+# Get the VPC ID from the master node instance
+VPC_ID=$(aws ec2 describe-instances \
+  --region "${AWS_REGION}" \
+  --instance-ids "${MASTER_INSTANCE_ID}" \
+  --query "Reservations[0].Instances[0].VpcId" \
+  --output text)
+echo "    VPC: ${VPC_ID}"
+
+# Check if our dedicated SG already exists
+SECURITY_GROUP_ID=$(aws ec2 describe-security-groups \
+  --region "${AWS_REGION}" \
+  --filters "Name=group-name,Values=${GH_ACTIONS_SG_NAME}" "Name=vpc-id,Values=${VPC_ID}" \
+  --query "SecurityGroups[0].GroupId" \
+  --output text 2>/dev/null || echo "None")
+
+if [[ "${SECURITY_GROUP_ID}" == "None" || -z "${SECURITY_GROUP_ID}" ]]; then
+  echo "    Creating dedicated security group: ${GH_ACTIONS_SG_NAME}..."
+  SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+    --region "${AWS_REGION}" \
+    --group-name "${GH_ACTIONS_SG_NAME}" \
+    --description "GitHub Actions runners - K8s API access via prefix lists" \
+    --vpc-id "${VPC_ID}" \
+    --query "GroupId" \
+    --output text)
+  echo "    Created: ${SECURITY_GROUP_ID}"
+else
+  echo "    Dedicated SG already exists: ${SECURITY_GROUP_ID}"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. Add inbound rules to the dedicated security group
 #    Each prefix list = 1 SG rule, regardless of how many CIDRs it contains
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "==> Step 4: Adding inbound rules to security group ${SECURITY_GROUP_ID}"
+echo "==> Step 5: Adding inbound rules to ${SECURITY_GROUP_ID}"
 
 for pl_id in "${PREFIX_LIST_IDS[@]}"; do
   # Check if rule already exists
@@ -254,7 +293,7 @@ for pl_id in "${PREFIX_LIST_IDS[@]}"; do
     --output text 2>/dev/null || echo "")
 
   if [[ -n "${EXISTING_RULE}" ]]; then
-    echo "    Rule for ${pl_id} already exists — skipping."
+    echo "    Rule for ${pl_id} already exists - skipping."
   else
     aws ec2 authorize-security-group-ingress \
       --region "${AWS_REGION}" \
@@ -263,6 +302,37 @@ for pl_id in "${PREFIX_LIST_IDS[@]}"; do
     echo "    Added rule: allow TCP ${K8S_API_PORT} from ${pl_id}"
   fi
 done
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Attach the dedicated SG to the master node (alongside existing SGs)
+#    An EC2 instance can have up to 5 SGs. We ADD this one without removing
+#    the existing ones.
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "==> Step 6: Attaching security group to master node ${MASTER_INSTANCE_ID}"
+
+# Get all current security groups on the instance
+CURRENT_SGS=$(aws ec2 describe-instances \
+  --region "${AWS_REGION}" \
+  --instance-ids "${MASTER_INSTANCE_ID}" \
+  --query "Reservations[0].Instances[0].SecurityGroups[*].GroupId" \
+  --output text)
+
+echo "    Current SGs: ${CURRENT_SGS}"
+
+# Check if already attached
+if echo "${CURRENT_SGS}" | grep -q "${SECURITY_GROUP_ID}"; then
+  echo "    ${SECURITY_GROUP_ID} is already attached - skipping."
+else
+  # Append our SG to the existing list
+  ALL_SGS="${CURRENT_SGS} ${SECURITY_GROUP_ID}"
+  aws ec2 modify-instance-attribute \
+    --region "${AWS_REGION}" \
+    --instance-id "${MASTER_INSTANCE_ID}" \
+    --groups ${ALL_SGS}
+  echo "    Attached ${SECURITY_GROUP_ID} to instance."
+  echo "    Updated SGs: ${ALL_SGS}"
+fi
 
 # Cleanup
 rm -rf "${TMPDIR}"
@@ -278,9 +348,10 @@ echo ""
 echo "  Summary:"
 echo "    - ${TOTAL_IPS} GitHub Actions IPv4 CIDRs fetched"
 echo "    - ${#PREFIX_LIST_IDS[@]} managed prefix list(s) created/updated"
-echo "    - Security group ${SECURITY_GROUP_ID} updated"
+echo "    - Dedicated security group: ${SECURITY_GROUP_ID} (${GH_ACTIONS_SG_NAME})"
+echo "    - Attached to master node: ${MASTER_INSTANCE_ID}"
 echo ""
-echo "  Prefix lists created:"
+echo "  Prefix lists:"
 for pl_id in "${PREFIX_LIST_IDS[@]}"; do
   echo "    - ${pl_id}"
 done
@@ -288,7 +359,8 @@ echo ""
 echo "  How it works:"
 echo "    - Each prefix list holds up to ${MAX_ENTRIES_PER_LIST} CIDRs"
 echo "    - Each prefix list = 1 security group rule"
-echo "    - So ${TOTAL_IPS} IPs = only ${#PREFIX_LIST_IDS[@]} SG rule(s)"
+echo "    - Dedicated SG avoids hitting rule limits on your main SG"
+echo "    - EC2 instances can have up to 5 SGs attached simultaneously"
 echo ""
 echo "  ┌─────────────────────────────────────────────────────────┐"
 echo "  │  IMPORTANT: GitHub updates IPs periodically.           │"

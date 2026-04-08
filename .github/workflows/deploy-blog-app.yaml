@@ -29,11 +29,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Get Runner Public IP
+        id: ip
+        run: echo "ipv4=$(curl -s https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Whitelist Runner IP
+        run: |
+          aws ec2 authorize-security-group-ingress \
+            --group-id ${{ secrets.SG_ID }} \
+            --protocol tcp --port 5432 \
+            --cidr ${{ steps.ip.outputs.ipv4 }}/32 \
+            --description "GHA Ephemeral Access"
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v4
