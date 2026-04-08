@@ -20,10 +20,6 @@ spec:
       protocol: TCP
       name: http
   sessionAffinity: None
-  template:
-    spec:
-      containers:
-        - image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:97b9a12
 ---
 # Deployment for Rails Application
 apiVersion: apps/v1
