@@ -1,0 +1,44 @@
+---
+# ArgoCD Application: auth-app
+# Watches auth-app/ directory in Git and syncs to auth-service namespace
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: auth-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-deploy-play
+    app.kubernetes.io/component: auth-service
+  # Cascade delete: removing this Application also removes deployed resources
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: workloads
+
+  source:
+    repoURL: git@github.com:nish-mdn/k8s-deploy-play.git
+    targetRevision: main
+    path: auth-app
+    # Exclude non-manifest directories from being applied
+    directory:
+      exclude: "{aws/*,irsa/*}"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: auth-service
+
+  syncPolicy:
+    automated:
+      prune: true        # Remove resources deleted from Git
+      selfHeal: true     # Revert manual kubectl changes to match Git
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

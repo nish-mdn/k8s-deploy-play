@@ -1,0 +1,57 @@
+---
+# AppProject: Security boundary for workload applications
+# Restricts which repos, namespaces, and resource types ArgoCD can manage
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+spec:
+  description: Production workloads deployed from k8s-deploy-play repo
+
+  # Only allow this Git repo as source
+  sourceRepos:
+    - "git@github.com:nish-mdn/k8s-deploy-play.git"
+
+  # Only allow deploying to these namespaces on the in-cluster target
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: auth-service
+    - server: https://kubernetes.default.svc
+      namespace: default        # blog-app uses default namespace
+
+  # Block cluster-scoped resources (no ClusterRole, ClusterRoleBinding, etc.)
+  clusterResourceWhitelist: []
+
+  # Only allow these namespace-scoped resource types
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: PersistentVolume
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: apps
+      kind: Deployment
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    # Vault Secrets Operator CRDs (if using VSO for secret injection)
+    - group: secrets.hashicorp.com
+      kind: VaultAuth
+    - group: secrets.hashicorp.com
+      kind: VaultStaticSecret
+
+  # Orphaned resource monitoring — warn if resources exist in target
+  # namespaces that are not managed by any ArgoCD application
+  orphanedResources:
+    warn: true

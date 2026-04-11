@@ -1,0 +1,37 @@
+---
+# Root Application (App of Apps pattern)
+# This is the only resource you manually `kubectl apply`.
+# It watches argocd/apps/ directory and auto-creates child Application resources.
+#
+# Bootstrap:
+#   kubectl apply -f argocd/projects/workloads.yaml
+#   kubectl apply -f argocd/root-app.yaml
+#
+# After that, ArgoCD manages everything — including adding new apps.
+# Just drop a new Application YAML into argocd/apps/ and push to main.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-deploy-play
+    app.kubernetes.io/component: argocd-root
+spec:
+  # Root app uses default project (needs access to argocd namespace
+  # to create Application resources)
+  project: default
+
+  source:
+    repoURL: git@github.com:nish-mdn/k8s-deploy-play.git
+    targetRevision: main
+    path: argocd/apps
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true       # Remove child apps when their YAML is deleted from Git
+      selfHeal: true    # Re-create child apps if someone deletes them manually

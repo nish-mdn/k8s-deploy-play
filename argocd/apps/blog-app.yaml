@@ -1,0 +1,38 @@
+---
+# ArgoCD Application: blog-app
+# Watches blog-app/ directory in Git and syncs to default namespace
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blog-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-deploy-play
+    app.kubernetes.io/component: blog-app
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: workloads
+
+  source:
+    repoURL: git@github.com:nish-mdn/k8s-deploy-play.git
+    targetRevision: main
+    path: blog-app
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default    # blog-app manifests don't specify a namespace
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
