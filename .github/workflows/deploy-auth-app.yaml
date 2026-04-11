@@ -1,142 +1,142 @@
-name: Deploy Auth App
+# name: Deploy Auth App
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'auth-app/**'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'auth-app/**'
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'auth-app/**'
+#   pull_request:
+#     branches:
+#       - main
+#     paths:
+#       - 'auth-app/**'
 
-permissions:
-  id-token: write   # Required for OIDC
-  contents: read
+# permissions:
+#   id-token: write   # Required for OIDC
+#   contents: read
 
-env:
-  AWS_REGION: us-east-1
+# env:
+#   AWS_REGION: us-east-1
 
-jobs:
-  deploy:
-    name: Deploy Auth Service App
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+# jobs:
+#   deploy:
+#     name: Deploy Auth Service App
+#     runs-on: ubuntu-latest
+#     if: github.event_name == 'push'
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
 
-      - name: Get Runner Public IP
-        id: ip
-        run: echo "ipv4=$(curl -s https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
+#       - name: Get Runner Public IP
+#         id: ip
+#         run: echo "ipv4=$(curl -s https://checkip.amazonaws.com)" >> $GITHUB_OUTPUT
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+#       - name: Configure AWS credentials via OIDC
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+#           aws-region: ${{ env.AWS_REGION }}
 
 
-      - name: Whitelist Runner IP
-        run: |
-          aws ec2 authorize-security-group-ingress \
-            --group-id ${{ secrets.SG_ID }} \
-            --ip-permissions '[{
-              "IpProtocol": "tcp",
-              "FromPort": 5432,
-              "ToPort": 5432,
-              "IpRanges": [{
-                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
-                "Description": "GHA Ephemeral Access"
-              }]
-            }]'
+#       - name: Whitelist Runner IP
+#         run: |
+#           aws ec2 authorize-security-group-ingress \
+#             --group-id ${{ secrets.SG_ID }} \
+#             --ip-permissions '[{
+#               "IpProtocol": "tcp",
+#               "FromPort": 5432,
+#               "ToPort": 5432,
+#               "IpRanges": [{
+#                 "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+#                 "Description": "GHA Ephemeral Access"
+#               }]
+#             }]'
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: 'v1.31.4'
+#       - name: Install kubectl
+#         uses: azure/setup-kubectl@v4
+#         with:
+#           version: 'v1.31.4'
 
-      - name: Install aws-iam-authenticator
-        run: |
-          curl -Lo aws-iam-authenticator \
-            "https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.26/aws-iam-authenticator_0.6.26_linux_amd64"
-          chmod +x aws-iam-authenticator
-          sudo mv aws-iam-authenticator /usr/local/bin/
-          aws-iam-authenticator version
+#       - name: Install aws-iam-authenticator
+#         run: |
+#           curl -Lo aws-iam-authenticator \
+#             "https://github.com/kubernetes-sigs/aws-iam-authenticator/releases/download/v0.6.26/aws-iam-authenticator_0.6.26_linux_amd64"
+#           chmod +x aws-iam-authenticator
+#           sudo mv aws-iam-authenticator /usr/local/bin/
+#           aws-iam-authenticator version
 
-      - name: Build kubeconfig dynamically
-        run: |
-          kubectl config set-cluster k8s-self-managed \
-            --server="${{ secrets.K8S_CLUSTER_URL }}" \
-            --insecure-skip-tls-verify=true
+#       - name: Build kubeconfig dynamically
+#         run: |
+#           kubectl config set-cluster k8s-self-managed \
+#             --server="${{ secrets.K8S_CLUSTER_URL }}" \
+#             --insecure-skip-tls-verify=true
 
-          # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
-          # on each kubectl call. No static K8s credentials stored anywhere.
-          kubectl config set-credentials github-deployer \
-            --exec-api-version=client.authentication.k8s.io/v1 \
-            --exec-command=aws-iam-authenticator \
-            --exec-arg=token \
-            --exec-arg=-i \
-            --exec-arg="${{ secrets.K8S_CLUSTER_ID }}" \
-            --exec-interactive-mode=Never
+#           # Use aws-iam-authenticator exec plugin — generates short-lived STS tokens
+#           # on each kubectl call. No static K8s credentials stored anywhere.
+#           kubectl config set-credentials github-deployer \
+#             --exec-api-version=client.authentication.k8s.io/v1 \
+#             --exec-command=aws-iam-authenticator \
+#             --exec-arg=token \
+#             --exec-arg=-i \
+#             --exec-arg="${{ secrets.K8S_CLUSTER_ID }}" \
+#             --exec-interactive-mode=Never
 
-          kubectl config set-context k8s-self-managed \
-            --cluster=k8s-self-managed \
-            --user=github-deployer
+#           kubectl config set-context k8s-self-managed \
+#             --cluster=k8s-self-managed \
+#             --user=github-deployer
 
-          kubectl config use-context k8s-self-managed
+#           kubectl config use-context k8s-self-managed
 
-      - name: Verify token generation
-        run: |
-          echo "--- Checking AWS identity ---"
-          aws sts get-caller-identity
-          echo ""
-          echo "--- Generating k8s token ---"
-          TOKEN_JSON=$(aws-iam-authenticator token -i "${{ secrets.K8S_CLUSTER_ID }}" 2>&1) || true
-          echo "Token output length: ${#TOKEN_JSON}"
-          echo "Contains k8s-aws-v1: $(echo "$TOKEN_JSON" | grep -co 'k8s-aws-v1' || echo '0')"
-          echo "API version: $(echo "$TOKEN_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("apiVersion","MISSING"))' 2>/dev/null || echo 'PARSE_FAILED')"
-          echo ""
-          echo "--- Kubeconfig structure ---"
-          kubectl config view
+#       - name: Verify token generation
+#         run: |
+#           echo "--- Checking AWS identity ---"
+#           aws sts get-caller-identity
+#           echo ""
+#           echo "--- Generating k8s token ---"
+#           TOKEN_JSON=$(aws-iam-authenticator token -i "${{ secrets.K8S_CLUSTER_ID }}" 2>&1) || true
+#           echo "Token output length: ${#TOKEN_JSON}"
+#           echo "Contains k8s-aws-v1: $(echo "$TOKEN_JSON" | grep -co 'k8s-aws-v1' || echo '0')"
+#           echo "API version: $(echo "$TOKEN_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("apiVersion","MISSING"))' 2>/dev/null || echo 'PARSE_FAILED')"
+#           echo ""
+#           echo "--- Kubeconfig structure ---"
+#           kubectl config view
 
-      - name: Verify cluster connectivity
-        run: kubectl cluster-info --v=6
+#       - name: Verify cluster connectivity
+#         run: kubectl cluster-info --v=6
 
-      - name: Deploy auth-app manifests
-        run: |
-          echo "Deploying auth-app manifests..."
-          kubectl apply -f auth-app/01-namespace.yaml
-          kubectl apply -f auth-app/02-configmap.yaml
-          kubectl apply -f auth-app/03-secret.yaml
-          kubectl apply -f auth-app/04-volumes.yaml
-          kubectl apply -f auth-app/05-database.yaml
-          kubectl apply -f auth-app/06-application.yaml
-          kubectl apply -f auth-app/09-rbac.yaml
+#       - name: Deploy auth-app manifests
+#         run: |
+#           echo "Deploying auth-app manifests..."
+#           kubectl apply -f auth-app/01-namespace.yaml
+#           kubectl apply -f auth-app/02-configmap.yaml
+#           kubectl apply -f auth-app/03-secret.yaml
+#           kubectl apply -f auth-app/04-volumes.yaml
+#           kubectl apply -f auth-app/05-database.yaml
+#           kubectl apply -f auth-app/06-application.yaml
+#           kubectl apply -f auth-app/09-rbac.yaml
 
-      - name: Verify deployment
-        run: |
-          kubectl rollout status deployment/auth-service-app \
-            -n auth-service --timeout=300s
+#       - name: Verify deployment
+#         run: |
+#           kubectl rollout status deployment/auth-service-app \
+#             -n auth-service --timeout=300s
 
-      - name: Cleanup kubeconfig
-        if: always()
-        run: rm -f $HOME/.kube/config
+#       - name: Cleanup kubeconfig
+#         if: always()
+#         run: rm -f $HOME/.kube/config
 
-      - name: Revoke Runner IP (Cleanup)
-        if: always() # CRITICAL: This ensures the rule is removed even if the deployment fails
-        run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id ${{ secrets.SG_ID }} \
-            --ip-permissions '[{
-              "IpProtocol": "tcp",
-              "FromPort": 5432,
-              "ToPort": 5432,
-              "IpRanges": [{
-                "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
-                "Description": "GHA Ephemeral Access"
-              }]
-            }]'
+#       - name: Revoke Runner IP (Cleanup)
+#         if: always() # CRITICAL: This ensures the rule is removed even if the deployment fails
+#         run: |
+#           aws ec2 revoke-security-group-ingress \
+#             --group-id ${{ secrets.SG_ID }} \
+#             --ip-permissions '[{
+#               "IpProtocol": "tcp",
+#               "FromPort": 5432,
+#               "ToPort": 5432,
+#               "IpRanges": [{
+#                 "CidrIp": "${{ steps.ip.outputs.ipv4 }}/32",
+#                 "Description": "GHA Ephemeral Access"
+#               }]
+#             }]'
