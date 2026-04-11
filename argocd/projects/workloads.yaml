@@ -24,9 +24,15 @@ spec:
   clusterResourceWhitelist: []
 
   # Only allow these namespace-scoped resource types
-  namespaceResourceWhitelist:
+# 1. ADD CLUSTER-SCOPED RESOURCES HERE
+  clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: ""
+      kind: PersistentVolume
+
+  # 2. KEEP NAMESPACE-SCOPED RESOURCES HERE
+  namespaceResourceWhitelist:
     - group: ""
       kind: ConfigMap
     - group: ""
@@ -35,17 +41,15 @@ spec:
       kind: Service
     - group: ""
       kind: ServiceAccount
+    # PVC is correctly namespace-scoped
     - group: ""
-      kind: PersistentVolume
-    - group: ""
-      kind: PersistentVolumeClaim
+      kind: PersistentVolumeClaim 
     - group: apps
       kind: Deployment
     - group: rbac.authorization.k8s.io
       kind: Role
     - group: rbac.authorization.k8s.io
       kind: RoleBinding
-    # Vault Secrets Operator CRDs (if using VSO for secret injection)
     - group: secrets.hashicorp.com
       kind: VaultAuth
     - group: secrets.hashicorp.com
