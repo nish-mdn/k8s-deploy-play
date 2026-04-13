@@ -1,4 +1,8 @@
 mode: daemonset
+image:
+  # This fixes your 'image.repository must be set' error
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.110.0"
 
 presets:
   logsCollection:
