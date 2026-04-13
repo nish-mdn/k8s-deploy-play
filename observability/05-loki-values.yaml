@@ -2,22 +2,14 @@ deploymentMode: SingleBinary
 
 loki:
   auth_enabled: false
-
-memcachedExporter:
-  enabled: false
-
-chunksCache:
-  enabled: false
-
-resultsCache:
-  enabled: false
-
+  # All storage and core configs MUST be indented under 'loki'
   storage:
     type: filesystem
     bucketNames:
       chunks: chunks
       ruler: ruler
       admin: admin
+  
   commonConfig:
     replication_factor: 1
 
@@ -55,10 +47,23 @@ resultsCache:
             - service.name
             - service.namespace
 
-# SingleBinary mode — one pod does everything
+# These are top-level keys in the grafana/loki chart
+memcachedExporter:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+lokiCanary:
+  enabled: false
+test:
+  enabled: false
+
+# SingleBinary configuration
 singleBinary:
   replicas: 1
   persistence:
+    enabled: true
     size: 3Gi
     storageClass: "obs-ebs-gp3"
   resources:
@@ -69,7 +74,7 @@ singleBinary:
       cpu: "500m"
       memory: "512Mi"
 
-# Disable SimpleScalable components (not needed in SingleBinary mode)
+# Ensure other modes are disabled
 write:
   replicas: 0
 read:
@@ -87,14 +92,3 @@ gateway:
     limits:
       cpu: "100m"
       memory: "64Mi"
-
-monitoring:
-  selfMonitoring:
-    enabled: false
-    grafanaAgent:
-      installOperator: false
-  lokiCanary:
-    enabled: false
-
-test:
-  enabled: false
