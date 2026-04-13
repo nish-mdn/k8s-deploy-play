@@ -3,18 +3,12 @@ deploymentMode: SingleBinary
 loki:
   auth_enabled: false
 
-# FIX 1: This disables the crashing 'loki-sc-rules' container
-sidecar:
-  enabled: false
-  rules:
-    enabled: false
-
-# FIX 2: Ensure memberlist doesn't keep spamming DNS errors
+  # FIX: memberlist belongs under the 'loki' key
   memberlist:
     join_members:
       - 127.0.0.1
 
-  # All storage and core configs MUST be indented under 'loki'
+  # FIX: storage and schema belong under the 'loki' key
   storage:
     type: filesystem
     bucketNames:
@@ -24,6 +18,7 @@ sidecar:
   
   commonConfig:
     replication_factor: 1
+    path_prefix: /var/loki
 
   schemaConfig:
     configs:
@@ -59,17 +54,18 @@ sidecar:
             - service.name
             - service.namespace
 
-# These are top-level keys in the grafana/loki chart
-memcachedExporter:
+# Sidecar is a TOP-LEVEL key
+sidecar:
   enabled: false
-chunksCache:
-  enabled: false
-resultsCache:
-  enabled: false
-lokiCanary:
-  enabled: false
-test:
-  enabled: false
+  rules:
+    enabled: false
+
+# These are TOP-LEVEL keys
+memcachedExporter: { enabled: false }
+chunksCache: { enabled: false }
+resultsCache: { enabled: false }
+lokiCanary: { enabled: false }
+test: { enabled: false }
 
 # SingleBinary configuration
 singleBinary:
@@ -81,22 +77,21 @@ singleBinary:
   resources:
     requests:
       cpu: "100m"
-      memory: "256Mi"
+      memory: "512Mi"
     limits:
       cpu: "500m"
       memory: "1Gi"
 
-# Ensure other modes are disabled
-write:
-  replicas: 0
-read:
-  replicas: 0
-backend:
-  replicas: 0
+# Scaling modes (Disabled for SingleBinary)
+write: { replicas: 0 }
+read: { replicas: 0 }
+backend: { replicas: 0 }
 
+# Gateway configuration
 gateway:
   enabled: true
   replicas: 1
+  # FIX: Correct for single-node scheduling
   affinity: {}
   topologySpreadConstraints: []
   resources:
