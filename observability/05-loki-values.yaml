@@ -2,6 +2,18 @@ deploymentMode: SingleBinary
 
 loki:
   auth_enabled: false
+
+# FIX 1: This disables the crashing 'loki-sc-rules' container
+sidecar:
+  enabled: false
+  rules:
+    enabled: false
+
+# FIX 2: Ensure memberlist doesn't keep spamming DNS errors
+  memberlist:
+    join_members:
+      - 127.0.0.1
+
   # All storage and core configs MUST be indented under 'loki'
   storage:
     type: filesystem
