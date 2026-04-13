@@ -1,6 +1,5 @@
-remoteWriteUrls:
-  - http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write
-
+remoteWrite:
+  - url: "http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write"
 config:
   global:
     scrape_interval: 30s

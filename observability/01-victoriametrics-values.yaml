@@ -20,7 +20,6 @@ server:
 
   extraArgs:
     httpListenAddr: ":8428"
-    openTelemetryListenAddr: ":4318"
 
   service:
     type: ClusterIP
