@@ -3,6 +3,13 @@ image:
   repository: otel/opentelemetry-collector-contrib
   tag: "0.110.0"
 
+# NEW: We must explicitly tell Kubernetes to give the pod the Node's IP
+extraEnvs:
+  - name: K8S_NODE_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+
 presets:
   logsCollection:
     enabled: true
@@ -10,15 +17,14 @@ presets:
     storeCheckpoints: true
   kubernetesAttributes:
     enabled: false 
-  # FIXED: Disable the preset so we can manually override the TLS settings
   kubeletMetrics:
     enabled: false
 
 config:
   receivers:
-    # FIXED: Manual Kubelet receiver configuration
     kubeletstats:
-      endpoint: "https://${env:K8S_NODE_NAME}:10250"
+      # CHANGED: Use the IP we injected above
+      endpoint: "https://${env:K8S_NODE_IP}:10250"
       auth_type: "serviceAccount"
       insecure_skip_verify: true
     
@@ -79,7 +85,6 @@ config:
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlphttp/loki]
       metrics:
-        # Added kubeletstats here to the metrics pipeline
         receivers: [otlp, kubeletstats]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [prometheusremotewrite/vm]
@@ -100,6 +105,7 @@ clusterRole:
   create: true
   rules:
     - apiGroups: [""]
+      # Ensure nodes/stats and nodes/proxy are present
       resources: ["pods", "namespaces", "nodes", "nodes/proxy", "services", "endpoints", "nodes/stats"]
       verbs: ["get", "list", "watch"]
     - apiGroups: ["apps"]
