@@ -1,10 +1,10 @@
 mode: daemonset
 image:
-  # This fixes your 'image.repository must be set' error
   repository: otel/opentelemetry-collector-contrib
   tag: "0.110.0"
 
 presets:
+  # This preset automatically mounts /var/log/pods and /var/lib/docker/containers
   logsCollection:
     enabled: true
     includeCollectorLogs: false
@@ -12,7 +12,6 @@ presets:
   kubernetesAttributes:
     enabled: true
     extractAllPodLabels: true
-    extractAllPodAnnotations: false
   kubeletMetrics:
     enabled: true
 
@@ -24,6 +23,8 @@ config:
           endpoint: "0.0.0.0:4317"
         http:
           endpoint: "0.0.0.0:4318"
+    # The preset defines a receiver called 'filelog', 
+    # but we can leave this block empty or omit it if using default preset settings.
 
   processors:
     k8sattributes:
@@ -36,14 +37,7 @@ config:
           - k8s.container.name
           - k8s.deployment.name
           - k8s.replicaset.name
-        labels:
-          - tag_name: app
-            key: app
-            from: pod
-          - tag_name: component
-            key: component
-            from: pod
-
+    
     memory_limiter:
       check_interval: 5s
       limit_percentage: 80
@@ -51,7 +45,6 @@ config:
 
     batch:
       send_batch_size: 1024
-      send_batch_max_size: 2048
       timeout: 5s
 
     resource:
@@ -61,37 +54,40 @@ config:
           action: upsert
 
   exporters:
+    # Sending logs to Loki via OTLP
     otlphttp/loki:
-      endpoint: http://loki-gateway.observability.svc:80/otlp
+      endpoint: "http://loki-gateway.observability.svc:80/otlp"
       tls:
         insecure: true
 
     prometheusremotewrite/vm:
-      endpoint: http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write
+      endpoint: "http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write"
       resource_to_telemetry_conversion:
         enabled: true
 
     otlp/tempo:
-      endpoint: tempo.observability.svc:4317
+      endpoint: "tempo.observability.svc:4317"
       tls:
         insecure: true
 
   service:
     pipelines:
       logs:
+        # 'filelog' is the name of the receiver injected by the preset
         receivers: [filelog]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlphttp/loki]
-
       metrics:
         receivers: [otlp]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [prometheusremotewrite/vm]
-
       traces:
         receivers: [otlp]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlp/tempo]
+
+# REMOVED: extraVolumes and extraVolumeMounts for /var/log/pods 
+# because they conflict with the logsCollection preset.
 
 resources:
   requests:
@@ -101,9 +97,7 @@ resources:
     cpu: "500m"
     memory: "512Mi"
 
-serviceAccount:
-  create: true
-
+# ClusterRole rules look good for 2026 k8sattributes requirements
 clusterRole:
   create: true
   rules:
@@ -113,30 +107,3 @@ clusterRole:
     - apiGroups: ["apps"]
       resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
       verbs: ["get", "list", "watch"]
-
-tolerations:
-  - operator: Exists
-
-extraVolumes:
-  - name: varlogpods
-    hostPath:
-      path: /var/log/pods
-
-extraVolumeMounts:
-  - name: varlogpods
-    mountPath: /var/log/pods
-    readOnly: true
-
-ports:
-  otlp:
-    enabled: true
-    containerPort: 4317
-    servicePort: 4317
-    hostPort: 4317
-    protocol: TCP
-  otlp-http:
-    enabled: true
-    containerPort: 4318
-    servicePort: 4318
-    hostPort: 4318
-    protocol: TCP
