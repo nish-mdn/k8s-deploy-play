@@ -3,6 +3,15 @@ deploymentMode: SingleBinary
 loki:
   auth_enabled: false
 
+memcachedExporter:
+  enabled: false
+
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
   storage:
     type: filesystem
 
@@ -71,10 +80,10 @@ gateway:
   resources:
     requests:
       cpu: "50m"
-      memory: "64Mi"
+      memory: "32Mi"
     limits:
-      cpu: "200m"
-      memory: "128Mi"
+      cpu: "100m"
+      memory: "64Mi"
 
 monitoring:
   selfMonitoring:
