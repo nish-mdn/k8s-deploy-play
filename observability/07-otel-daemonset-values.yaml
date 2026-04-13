@@ -4,20 +4,24 @@ image:
   tag: "0.110.0"
 
 presets:
-  # This preset automatically mounts /var/log/pods and /var/lib/docker/containers
   logsCollection:
     enabled: true
     includeCollectorLogs: false
     storeCheckpoints: true
-  # FIXED: Disabled to prevent the 'otel_annotations' injection error.
-  # Your manual configuration in the config block below replaces this.
   kubernetesAttributes:
     enabled: false 
+  # FIXED: Disable the preset so we can manually override the TLS settings
   kubeletMetrics:
-    enabled: true
+    enabled: false
 
 config:
   receivers:
+    # FIXED: Manual Kubelet receiver configuration
+    kubeletstats:
+      endpoint: "https://${env:K8S_NODE_NAME}:10250"
+      auth_type: "serviceAccount"
+      insecure_skip_verify: true
+    
     otlp:
       protocols:
         grpc:
@@ -53,7 +57,6 @@ config:
           action: upsert
 
   exporters:
-    # Sending logs to Loki via OTLP
     otlphttp/loki:
       endpoint: "http://loki-gateway.observability.svc:80/otlp"
       tls:
@@ -76,7 +79,8 @@ config:
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlphttp/loki]
       metrics:
-        receivers: [otlp]
+        # Added kubeletstats here to the metrics pipeline
+        receivers: [otlp, kubeletstats]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [prometheusremotewrite/vm]
       traces:
@@ -96,7 +100,7 @@ clusterRole:
   create: true
   rules:
     - apiGroups: [""]
-      resources: ["pods", "namespaces", "nodes", "nodes/proxy", "services", "endpoints"]
+      resources: ["pods", "namespaces", "nodes", "nodes/proxy", "services", "endpoints", "nodes/stats"]
       verbs: ["get", "list", "watch"]
     - apiGroups: ["apps"]
       resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
