@@ -72,7 +72,7 @@ singleBinary:
       memory: "256Mi"
     limits:
       cpu: "500m"
-      memory: "512Mi"
+      memory: "1Gi"
 
 # Ensure other modes are disabled
 write:
