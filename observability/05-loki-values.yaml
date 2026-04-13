@@ -85,6 +85,8 @@ backend:
 gateway:
   enabled: true
   replicas: 1
+  affinity: {}
+  topologySpreadConstraints: []
   resources:
     requests:
       cpu: "50m"
