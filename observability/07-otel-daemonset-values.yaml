@@ -9,9 +9,10 @@ presets:
     enabled: true
     includeCollectorLogs: false
     storeCheckpoints: true
+  # FIXED: Disabled to prevent the 'otel_annotations' injection error.
+  # Your manual configuration in the config block below replaces this.
   kubernetesAttributes:
-    enabled: true
-    extractAllPodLabels: true
+    enabled: false 
   kubeletMetrics:
     enabled: true
 
@@ -23,8 +24,6 @@ config:
           endpoint: "0.0.0.0:4317"
         http:
           endpoint: "0.0.0.0:4318"
-    # The preset defines a receiver called 'filelog', 
-    # but we can leave this block empty or omit it if using default preset settings.
 
   processors:
     k8sattributes:
@@ -73,7 +72,6 @@ config:
   service:
     pipelines:
       logs:
-        # 'filelog' is the name of the receiver injected by the preset
         receivers: [filelog]
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlphttp/loki]
@@ -86,9 +84,6 @@ config:
         processors: [k8sattributes, resource, memory_limiter, batch]
         exporters: [otlp/tempo]
 
-# REMOVED: extraVolumes and extraVolumeMounts for /var/log/pods 
-# because they conflict with the logsCollection preset.
-
 resources:
   requests:
     cpu: "100m"
@@ -97,7 +92,6 @@ resources:
     cpu: "500m"
     memory: "512Mi"
 
-# ClusterRole rules look good for 2026 k8sattributes requirements
 clusterRole:
   create: true
   rules:
