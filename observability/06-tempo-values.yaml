@@ -1,0 +1,65 @@
+tempo:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: "http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write"
+
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  compactor:
+    compaction:
+      block_retention: 48h
+
+  overrides:
+    defaults:
+      ingestion:
+        rate_limit_bytes: 15000000
+        burst_size_bytes: 20000000
+
+persistence:
+  enabled: true
+  storageClass: "obs-ebs-gp3"
+  size: 3Gi
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+metricsGenerator:
+  enabled: true
+  config:
+    storage:
+      remote_write:
+        - url: "http://victoriametrics-victoria-metrics-single-server.observability.svc:8428/api/v1/write"
+    registry:
+      collection_interval: 15s
+      stale_duration: 15m
+    processor:
+      service_graphs:
+        dimensions:
+          - service.namespace
+          - http.method
+          - http.status_code
+      span_metrics:
+        dimensions:
+          - service.namespace
+          - http.method
+          - http.status_code
+          - http.route

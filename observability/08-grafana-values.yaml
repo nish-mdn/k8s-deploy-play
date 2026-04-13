@@ -1,0 +1,137 @@
+replicas: 1
+
+persistence:
+  enabled: true
+  storageClassName: "obs-ebs-gp3"
+  size: 2Gi
+
+adminUser: admin
+# Leave empty — retrieve generated password via:
+# kubectl get secret grafana -n observability -o jsonpath="{.data.admin-password}" | base64 -d
+adminPassword: ""
+
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      # VictoriaMetrics as Prometheus-compatible source
+      - name: VictoriaMetrics
+        type: prometheus
+        uid: victoriametrics
+        url: http://victoriametrics-victoria-metrics-single-server.observability.svc:8428
+        access: proxy
+        isDefault: true
+        jsonData:
+          timeInterval: "30s"
+          httpMethod: POST
+
+      # Loki for logs
+      - name: Loki
+        type: loki
+        uid: loki
+        url: http://loki-gateway.observability.svc:80
+        access: proxy
+        jsonData:
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '"trace_id":"(\w+)"'
+              url: "$${__value.raw}"
+              urlDisplayLabel: "View Trace"
+
+      # Tempo for traces
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.observability.svc:3200
+        access: proxy
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-1h"
+            spanEndTimeShift: "1h"
+            filterByTraceID: true
+            filterBySpanID: false
+            customQuery: true
+            query: '{k8s_namespace_name="${__span.tags["service.namespace"]}"} | json | trace_id = `${__span.traceId}`'
+          tracesToMetrics:
+            datasourceUid: victoriametrics
+            spanStartTimeShift: "-1h"
+            spanEndTimeShift: "1h"
+            tags:
+              - key: service.name
+                value: service
+            queries:
+              - name: "Request Rate"
+                query: 'sum(rate(traces_spanmetrics_calls_total{service="$${__tags.service}"}[5m]))'
+              - name: "Error Rate"
+                query: 'sum(rate(traces_spanmetrics_calls_total{service="$${__tags.service}", status_code="STATUS_CODE_ERROR"}[5m]))'
+          serviceMap:
+            datasourceUid: victoriametrics
+          nodeGraph:
+            enabled: true
+          lokiSearch:
+            datasourceUid: loki
+
+      # Alertmanager data source
+      - name: Alertmanager
+        type: alertmanager
+        url: http://alertmanager.observability.svc:9093
+        access: proxy
+        jsonData:
+          implementation: prometheus
+
+dashboardProviders:
+  dashboardproviders.yaml:
+    apiVersion: 1
+    providers:
+      - name: "default"
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+
+dashboards:
+  default:
+    k8s-cluster:
+      gnetId: 7249
+      revision: 1
+      datasource: VictoriaMetrics
+    node-exporter:
+      gnetId: 1860
+      revision: 37
+      datasource: VictoriaMetrics
+    k8s-pods:
+      gnetId: 6417
+      revision: 1
+      datasource: VictoriaMetrics
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+# Access Grafana via: kubectl port-forward -n observability svc/grafana 3000:80
+# Or use NodePort: change service.type to NodePort in this file
+# Uncomment below to enable ALB ingress when ready:
+#
+# ingress:
+#   enabled: true
+#   ingressClassName: alb
+#   annotations:
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+#     alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:us-east-1:177701659471:certificate/YOUR_CERT_ID"
+#   hosts:
+#     - grafana.yourdomain.com
+#   path: /
+#   pathType: Prefix
+  path: /
+  pathType: Prefix

@@ -1,0 +1,54 @@
+---
+# Auto-instrumentation for auth-service namespace
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: ruby-instrumentation
+  namespace: auth-service
+spec:
+  exporter:
+    endpoint: http://otel-daemonset-opentelemetry-collector.observability.svc:4318
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1.0"
+  ruby:
+    env:
+      - name: OTEL_RUBY_DISABLED_INSTRUMENTATIONS
+        value: ""
+      - name: OTEL_SERVICE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.labels['app']
+      - name: OTEL_RESOURCE_ATTRIBUTES
+        value: "service.namespace=$(OTEL_RESOURCE_ATTRIBUTES_NAMESPACE)"
+      - name: OTEL_RESOURCE_ATTRIBUTES_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
+---
+# Auto-instrumentation for docker-test namespace (adjust namespace as needed)
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: ruby-instrumentation
+  namespace: default
+spec:
+  exporter:
+    endpoint: http://otel-daemonset-opentelemetry-collector.observability.svc:4318
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1.0"
+  ruby:
+    env:
+      - name: OTEL_RUBY_DISABLED_INSTRUMENTATIONS
+        value: ""
+      - name: OTEL_SERVICE_NAME
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.labels['app']

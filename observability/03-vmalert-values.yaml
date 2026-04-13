@@ -1,0 +1,105 @@
+server:
+  datasource:
+    url: http://victoriametrics-victoria-metrics-single-server.observability.svc:8428
+  notifier:
+    alertmanager:
+      url: http://alertmanager.observability.svc:9093
+  remoteWrite:
+    url: http://victoriametrics-victoria-metrics-single-server.observability.svc:8428
+  remoteRead:
+    url: http://victoriametrics-victoria-metrics-single-server.observability.svc:8428
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+  config:
+    alerts:
+      groups:
+        # ── Infrastructure Alerts ──
+        - name: node-alerts
+          interval: 30s
+          rules:
+            - alert: NodeHighCPU
+              expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Node {{ $labels.instance }} CPU > 85%"
+
+            - alert: NodeHighMemory
+              expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Node {{ $labels.instance }} memory > 85%"
+
+            - alert: NodeDiskSpaceLow
+              expr: (1 - node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"}) * 100 > 85
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Node {{ $labels.instance }} disk usage > 85%"
+
+        # ── Kubernetes Alerts ──
+        - name: kubernetes-alerts
+          interval: 30s
+          rules:
+            - alert: PodCrashLooping
+              expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+
+            - alert: PodNotReady
+              expr: kube_pod_status_ready{condition="true"} == 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+
+            - alert: DeploymentReplicasMismatch
+              expr: kube_deployment_spec_replicas != kube_deployment_status_ready_replicas
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} replicas mismatch"
+
+        # ── Application Alerts ──
+        - name: application-alerts
+          interval: 30s
+          rules:
+            - alert: HighErrorRate
+              expr: sum(rate(http_server_requests_total{http_status_code=~"5.."}[5m])) by (namespace, app) / sum(rate(http_server_requests_total[5m])) by (namespace, app) > 0.05
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "{{ $labels.app }} in {{ $labels.namespace }} error rate > 5%"
+
+            - alert: HighLatencyP99
+              expr: histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, namespace, app)) > 2
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "{{ $labels.app }} P99 latency > 2s"
+
+            - alert: AppDown
+              expr: up{app=~"auth-service|docker-test"} == 0
+              for: 2m
+              labels:
+                severity: critical
+              annotations:
+                summary: "{{ $labels.app }} is unreachable"

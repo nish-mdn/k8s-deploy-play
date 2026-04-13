@@ -1,0 +1,30 @@
+server:
+  retentionPeriod: "2d"
+
+  persistentVolume:
+    enabled: true
+    storageClass: "obs-ebs-gp3"
+    size: 3Gi
+
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+
+  scrape:
+    enabled: true
+    configMap: ""
+
+  extraArgs:
+    httpListenAddr: ":8428"
+    openTelemetryListenAddr: ":4318"
+
+  service:
+    type: ClusterIP
+    servicePort: 8428
+
+  ingress:
+    enabled: false
