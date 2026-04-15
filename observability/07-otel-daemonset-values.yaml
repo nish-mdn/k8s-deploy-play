@@ -19,7 +19,8 @@ ports:
     servicePort: 4318
     protocol: TCP
 
-extraEnvs:
+# CHANGED: Using both env and extraEnvs to ensure the variable is captured
+env:
   - name: K8S_NODE_IP
     valueFrom:
       fieldRef:
@@ -30,16 +31,15 @@ presets:
     enabled: true
     includeCollectorLogs: false
     storeCheckpoints: true
-  # CHANGED: Setting this to false stops the chart from injecting invalid keys
   kubernetesAttributes:
     enabled: false 
-  # CHANGED: Setting this to false prevents conflicts with our manual kubeletstats
   kubeletMetrics:
     enabled: false
 
 config:
   receivers:
     kubeletstats:
+      # Use the environment variable we injected
       endpoint: "https://${env:K8S_NODE_IP}:10250"
       auth_type: "serviceAccount"
       insecure_skip_verify: true
@@ -65,8 +65,9 @@ config:
     
     memory_limiter:
       check_interval: 5s
-      limit_percentage: 80
-      spike_limit_percentage: 25
+      # RELAXED: Allowing it to use more of its allocated memory before refusing data
+      limit_percentage: 90
+      spike_limit_percentage: 10
 
     batch:
       send_batch_size: 1024
@@ -112,10 +113,10 @@ config:
 resources:
   requests:
     cpu: "50m"
-    memory: "128Mi"
+    memory: "200Mi"  # INCREASED: To stop the Memory Limiter from refusing data
   limits:
     cpu: "200m"
-    memory: "256Mi"
+    memory: "300Mi"  # INCREASED: Stability buffer
 
 clusterRole:
   create: true
