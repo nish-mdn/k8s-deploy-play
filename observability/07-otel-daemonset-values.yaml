@@ -19,8 +19,8 @@ ports:
     servicePort: 4318
     protocol: TCP
 
-# CHANGED: Using both env and extraEnvs to ensure the variable is captured
-env:
+# Correct key for environment variables
+extraEnvs:
   - name: K8S_NODE_IP
     valueFrom:
       fieldRef:
@@ -39,7 +39,7 @@ presets:
 config:
   receivers:
     kubeletstats:
-      # Use the environment variable we injected
+      # Use the environment variable for the local node
       endpoint: "https://${env:K8S_NODE_IP}:10250"
       auth_type: "serviceAccount"
       insecure_skip_verify: true
@@ -65,7 +65,6 @@ config:
     
     memory_limiter:
       check_interval: 5s
-      # RELAXED: Allowing it to use more of its allocated memory before refusing data
       limit_percentage: 90
       spike_limit_percentage: 10
 
@@ -81,6 +80,7 @@ config:
 
   exporters:
     otlphttp/loki:
+      # Bypassing gateway directly to the loki pod service
       endpoint: "http://loki.observability.svc:3100/otlp"
       tls:
         insecure: true
@@ -112,11 +112,11 @@ config:
 
 resources:
   requests:
-    cpu: "50m"
-    memory: "200Mi"  # INCREASED: To stop the Memory Limiter from refusing data
+    cpu: "30m"      # Minimal request to stay under your 95% CPU cap
+    memory: "150Mi" # Enough to boot without "Refusing data" immediately
   limits:
     cpu: "200m"
-    memory: "300Mi"  # INCREASED: Stability buffer
+    memory: "300Mi"
 
 clusterRole:
   create: true
