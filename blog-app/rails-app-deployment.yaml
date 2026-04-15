@@ -17,6 +17,16 @@ spec:
       containers:
         - name: rails-app
           image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-docker-repo:2e67238
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: "blog-app-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              # Point to your OTel Collector Service
+              value: "http://otel-daemonset-opentelemetry-collector.observability.svc:4318"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=default,deployment.environment=development"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"          
           ports:
             - containerPort: 3000
           imagePullPolicy: Always
