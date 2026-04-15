@@ -3,12 +3,10 @@ image:
   repository: otel/opentelemetry-collector-contrib
   tag: "0.110.0"
 
-# NEW: This creates the "Front Door" (Service) so Ruby can find the Collector
 service:
   enabled: true
   type: ClusterIP
 
-# NEW: We must explicitly tell the chart which ports to open on the Service
 ports:
   otlp:
     enabled: true
@@ -32,10 +30,12 @@ presets:
     enabled: true
     includeCollectorLogs: false
     storeCheckpoints: true
+  # CHANGED: Setting this to false stops the chart from injecting invalid keys
   kubernetesAttributes:
-    enabled: true  # Changed to true to help with Dashboard N/A issues
+    enabled: false 
+  # CHANGED: Setting this to false prevents conflicts with our manual kubeletstats
   kubeletMetrics:
-    enabled: true  # Changed to true to get Node/Pod CPU metrics
+    enabled: false
 
 config:
   receivers:
@@ -79,7 +79,6 @@ config:
           action: upsert
 
   exporters:
-    # CHANGED: Bypassing loki-gateway:80 and going direct to loki:3100
     otlphttp/loki:
       endpoint: "http://loki.observability.svc:3100/otlp"
       tls:
@@ -112,8 +111,8 @@ config:
 
 resources:
   requests:
-    cpu: "50m"      # Lowered from 100m to help with your 95% CPU usage
-    memory: "128Mi"  # Lowered from 256Mi to prevent Eviction
+    cpu: "50m"
+    memory: "128Mi"
   limits:
     cpu: "200m"
     memory: "256Mi"
