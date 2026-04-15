@@ -3,7 +3,24 @@ image:
   repository: otel/opentelemetry-collector-contrib
   tag: "0.110.0"
 
-# NEW: We must explicitly tell Kubernetes to give the pod the Node's IP
+# NEW: This creates the "Front Door" (Service) so Ruby can find the Collector
+service:
+  enabled: true
+  type: ClusterIP
+
+# NEW: We must explicitly tell the chart which ports to open on the Service
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+
 extraEnvs:
   - name: K8S_NODE_IP
     valueFrom:
@@ -16,14 +33,13 @@ presets:
     includeCollectorLogs: false
     storeCheckpoints: true
   kubernetesAttributes:
-    enabled: false 
+    enabled: true  # Changed to true to help with Dashboard N/A issues
   kubeletMetrics:
-    enabled: false
+    enabled: true  # Changed to true to get Node/Pod CPU metrics
 
 config:
   receivers:
     kubeletstats:
-      # CHANGED: Use the IP we injected above
       endpoint: "https://${env:K8S_NODE_IP}:10250"
       auth_type: "serviceAccount"
       insecure_skip_verify: true
@@ -63,8 +79,9 @@ config:
           action: upsert
 
   exporters:
+    # CHANGED: Bypassing loki-gateway:80 and going direct to loki:3100
     otlphttp/loki:
-      endpoint: "http://loki-gateway.observability.svc:80/otlp"
+      endpoint: "http://loki.observability.svc:3100/otlp"
       tls:
         insecure: true
 
@@ -95,17 +112,16 @@ config:
 
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: "50m"      # Lowered from 100m to help with your 95% CPU usage
+    memory: "128Mi"  # Lowered from 256Mi to prevent Eviction
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: "200m"
+    memory: "256Mi"
 
 clusterRole:
   create: true
   rules:
     - apiGroups: [""]
-      # Ensure nodes/stats and nodes/proxy are present
       resources: ["pods", "namespaces", "nodes", "nodes/proxy", "services", "endpoints", "nodes/stats"]
       verbs: ["get", "list", "watch"]
     - apiGroups: ["apps"]
