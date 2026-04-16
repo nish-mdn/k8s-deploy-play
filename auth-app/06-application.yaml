@@ -121,6 +121,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+          
+            - name: OTEL_SERVICE_NAME
+              value: "auth-app-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              # Point to your OTel Collector Service
+              value: "http://otel-daemonset-opentelemetry-collector.observability.svc:4318"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=auth-service,deployment.environment=production"
+            - name: OTEL_PROPAGATORS
+              value: "tracecontext,baggage"                  
           # Resource management
           resources:
             requests:
