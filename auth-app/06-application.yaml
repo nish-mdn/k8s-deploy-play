@@ -121,7 +121,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-          
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
             - name: OTEL_SERVICE_NAME
               value: "auth-app-service"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
