@@ -77,7 +77,7 @@ spec:
               memory: "128Mi"
       containers:
         - name: rails-app
-          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:1b807a5 # Update with your ECR registry
+          image: 177701659471.dkr.ecr.us-east-1.amazonaws.com/mdn-auth-service:76ccfad # Update with your ECR registry
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -131,7 +131,7 @@ spec:
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace=auth-service,deployment.environment=production"
             - name: OTEL_PROPAGATORS
-              value: "tracecontext,baggage"                  
+              value: "tracecontext,baggage"
           # Resource management
           resources:
             requests:
