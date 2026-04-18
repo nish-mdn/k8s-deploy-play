@@ -41,7 +41,9 @@ config:
         - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
           action: keep
           regex: kube-state-metrics
-
+      scrape_interval: 60s  # Increase from 30s to 60s to reduce load
+      scrape_timeout: 45s   # Give it plenty of time to finish the 16.5MB transfer
+      
     # Scrape node-exporter
     - job_name: "node-exporter"
       kubernetes_sd_configs:

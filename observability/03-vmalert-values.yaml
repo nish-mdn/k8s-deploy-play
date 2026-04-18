@@ -103,3 +103,18 @@ server:
                 severity: critical
               annotations:
                 summary: "{{ $labels.app }} is unreachable"
+
+            - alert: ContainerCPUHighUsage
+              # Query: (Actual CPU usage / CPU Limit) * 100
+              expr: |
+                (
+                  sum(rate(container_cpu_usage_seconds_total{container!="",pod!=""}[1m])) by (namespace, pod, container)
+                  /
+                  sum(kube_pod_container_resource_limits{resource="cpu",pod!=""}) by (namespace, pod, container)
+                ) * 100 > 80
+              for: 1m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Container {{ $labels.container }} in {{ $labels.pod }} using > 80% of CPU limit"
+                description: "Pod {{ $labels.pod }} is consuming {{ $value | humanizePercentage }} of its allocated CPU."
