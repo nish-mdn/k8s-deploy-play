@@ -65,23 +65,45 @@ data:
       smtp_smarthost: 'smtp.gmail.com:587'
       smtp_from: 'madhantry@gmail.com'
       smtp_auth_username: 'madhantry@gmail.com'
-      smtp_auth_password: 'YOUR_GMAIL_APP_PASSWORD'
+      smtp_auth_password: 'YOUR_GMAIL_APP_PASSWORD' # Ensure this is your 16-char App Password
       smtp_require_tls: true
 
     route:
-      receiver: 'email-default'
-      group_by: ['alertname', 'namespace']
+      group_by: ['alertname', 'namespace', 'pod']
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 4h
+      receiver: 'email-default' # Catch-all for everything else
 
       routes:
-        - receiver: 'email-critical'
-          match:
-            severity: critical
+        # --- 1. Specific Rule for blog Service (Lambda + Email) ---
+        - matchers:
+            - app="rails-app"
+          receiver: 'auth-scaling-and-email'
+          continue: true 
+
+        # --- 2. Existing Critical Rule (Email Only) ---
+        - matchers:
+            - severity="critical"
+          receiver: 'email-critical'
           continue: true
 
     receivers:
+      # This receiver handles both actions for your specific pod
+      - name: 'auth-scaling-and-email'
+        email_configs:
+          - to: 'madhantry@gmail.com'
+            send_resolved: true
+            headers:
+              Subject: '[SCALING ALERT] blog-Service Pod High Load'
+        webhook_configs:
+          - url: ''
+            send_resolved: false # Only trigger Lambda on 'Firing'
+            http_config:
+              basic_auth:
+                username: 'madhantry@gmail.com'
+                password: ''
+
       - name: 'email-default'
         email_configs:
           - to: 'madhantry@gmail.com'
