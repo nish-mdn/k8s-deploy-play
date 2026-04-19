@@ -78,7 +78,7 @@ data:
       routes:
         # --- 1. Specific Rule for blog Service (Lambda + Email) ---
         - matchers:
-            - app="rails-app"
+            - pod =~ "rails-app-pod.*"
           receiver: 'auth-scaling-and-email'
           continue: true 
 
