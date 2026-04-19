@@ -29,7 +29,7 @@ spec:
               value: "tracecontext,baggage"
           resources:
             requests:
-              cpu: "250m"      # Guaranteed 0.25 core
+              cpu: "100m"      # Guaranteed 0.25 core
               memory: "256Mi"
             limits:
               cpu: "500m"      # Maximum 0.5 core
