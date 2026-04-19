@@ -27,6 +27,13 @@ spec:
               value: "service.namespace=default,deployment.environment=development"
             - name: OTEL_PROPAGATORS
               value: "tracecontext,baggage"
+          resources:
+            requests:
+              cpu: "250m"      # Guaranteed 0.25 core
+              memory: "256Mi"
+            limits:
+              cpu: "500m"      # Maximum 0.5 core
+              memory: "512Mi"              
           ports:
             - containerPort: 3000
           imagePullPolicy: Always
